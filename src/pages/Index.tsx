@@ -93,7 +93,7 @@ const Index = () => {
       {/* Footer */}
       <footer className="border-t border-border py-8 px-4">
         <div className="container mx-auto text-center text-sm text-muted-foreground">
-          <p>© 2026 Barber King. Todos os direitos reservados.</p>
+          <p>© 2026 Chincoa Cortes. Todos os direitos reservados.</p>
         </div>
       </footer>
     </div>

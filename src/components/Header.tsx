@@ -11,7 +11,7 @@ const Header = () => {
       <div className="container mx-auto flex items-center justify-between h-16 px-4">
         <Link to="/" className="flex items-center gap-2">
           <Scissors className="h-6 w-6 text-primary" />
-          <span className="font-heading text-xl font-bold gold-text">BARBER KING</span>
+          <span className="font-heading text-xl font-bold gold-text">CHINCOA CORTES</span>
         </Link>
 
         <nav className="flex items-center gap-3">
