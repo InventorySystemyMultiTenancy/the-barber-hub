@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { API_BASE_URL, getBackendHealth } from "@/lib/api";
+import { API_BASE_URL, getBackendHealth, hasApiBaseUrl } from "@/lib/api";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -18,6 +18,13 @@ const queryClient = new QueryClient();
 
 const App = () => {
   useEffect(() => {
+    if (!hasApiBaseUrl) {
+      console.warn("Backend URL not configured", {
+        message: "Set VITE_API_URL in Vercel environment variables.",
+      });
+      return;
+    }
+
     getBackendHealth()
       .then((health) => {
         console.info("Backend connected", {
@@ -39,7 +46,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <Routes>
               <Route path="/" element={<Index />} />

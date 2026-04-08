@@ -76,7 +76,13 @@ const Booking = () => {
     return h <= new Date().getHours();
   };
 
-  if (authLoading) return null;
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Carregando autenticacao...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
