@@ -1,103 +1,125 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { User, Session } from "@supabase/supabase-js";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import {
+  ApiClientError,
+  clearStoredSession,
+  getFriendlyErrorMessage,
+  getStoredSessionUser,
+  login,
+  me,
+  register,
+  SESSION_TOKEN_KEY,
+  setStoredSession,
+  type SessionUser,
+} from "@/lib/api";
+
+type AuthError = {
+  message: string;
+  code?: string;
+};
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: SessionUser | null;
   isAdmin: boolean;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, phone: string) => Promise<{ error: any }>;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string, phone: string) => Promise<{ error: AuthError | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function toAuthError(error: unknown): AuthError {
+  if (error instanceof ApiClientError) {
+    return {
+      message: getFriendlyErrorMessage(error),
+      code: error.code,
+    };
+  }
+
+  return {
+    message: "Nao foi possivel concluir a operacao.",
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const checkAdmin = async (userId: string) => {
+  const isAdmin = useMemo(() => user?.role === "admin", [user]);
+
+  const refreshSession = async () => {
+    const token = localStorage.getItem(SESSION_TOKEN_KEY);
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
     try {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .eq("role", "admin")
-        .maybeSingle();
-      setIsAdmin(!!data);
+      const freshUser = await me();
+      setUser(freshUser);
+      setStoredSession({ token, user: freshUser });
     } catch {
-      setIsAdmin(false);
+      clearStoredSession();
+      setUser(null);
     }
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      try {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await checkAdmin(session.user.id);
-        } else {
-          setIsAdmin(false);
-        }
-      } finally {
-        setLoading(false);
+    const boot = async () => {
+      const storedUser = getStoredSessionUser();
+      if (storedUser) {
+        setUser(storedUser);
       }
-    });
 
-    supabase.auth
-      .getSession()
-      .then(async ({ data: { session } }) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await checkAdmin(session.user.id);
-        } else {
-          setIsAdmin(false);
-        }
-      })
-      .catch(() => {
-        setSession(null);
-        setUser(null);
-        setIsAdmin(false);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      await refreshSession();
+      setLoading(false);
+    };
 
-    return () => subscription.unsubscribe();
+    boot();
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string, phone: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName, phone },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    return { error };
+    try {
+      await register({ email, password, fullName, phone });
+      const session = await login({ email, password });
+      setStoredSession(session);
+      setUser(session.user);
+      return { error: null };
+    } catch (error) {
+      return { error: toAuthError(error) };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    try {
+      const session = await login({ email, password });
+      setStoredSession(session);
+      setUser(session.user);
+      return { error: null };
+    } catch (error) {
+      return { error: toAuthError(error) };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    clearStoredSession();
     setUser(null);
-    setSession(null);
-    setIsAdmin(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAdmin,
+        loading,
+        signUp,
+        signIn,
+        signOut,
+        refreshSession,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

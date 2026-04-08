@@ -20,7 +20,7 @@ const App = () => {
   useEffect(() => {
     if (!hasApiBaseUrl) {
       console.warn("Backend URL not configured", {
-        message: "Set VITE_API_URL in Vercel environment variables.",
+        message: "Set VITE_FRONTEND_API_URL (or VITE_API_URL) in environment variables.",
       });
       return;
     }
