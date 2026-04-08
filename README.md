@@ -1,73 +1,85 @@
-# Welcome to your Lovable project
+# The Barber Hub
 
-## Project info
+Projeto reorganizado em duas camadas:
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+- `frontend`: aplicação React + Vite (interface web)
+- `backend`: API Node.js + Express (base para regras de negócio e integração com banco)
 
-## How can I edit this code?
+## Estrutura
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```txt
+.
+├── frontend/
+├── backend/
+└── README.md
 ```
 
-**Edit a file directly in GitHub**
+## Como rodar
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. Instale as dependências do frontend:
 
-**Use GitHub Codespaces**
+```bash
+npm install --prefix frontend
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+2. Instale as dependências do backend:
 
-## What technologies are used for this project?
+```bash
+npm install --prefix backend
+```
 
-This project is built with:
+3. Rode o frontend:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```bash
+npm run dev:frontend
+```
 
-## How can I deploy this project?
+4. Em outro terminal, rode o backend:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```bash
+npm run dev:backend
+```
 
-## Can I connect a custom domain to my Lovable project?
+## Conexao Frontend <-> Backend
 
-Yes, you can!
+O frontend usa a variavel `VITE_API_URL` para apontar para a API.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Localmente: `VITE_API_URL=http://localhost:3001`
+- Em producao (Vercel): `VITE_API_URL=https://seu-backend.onrender.com`
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+No backend, configure CORS para aceitar o dominio da Vercel:
+
+- `FRONTEND_ORIGIN=https://seu-frontend.vercel.app`
+- `CORS_ORIGINS=https://seu-frontend.vercel.app,http://localhost:8080`
+
+Existe um health check em `GET /api/health`, e o frontend valida essa conexao ao iniciar.
+
+## Deploy separado (seu cenario)
+
+1. Copie a pasta `backend` para um novo repositorio.
+2. No novo repositorio do backend, rode `npm install`.
+3. Faça deploy do backend no Render com:
+	- Build command: `npm install`
+	- Start command: `npm start`
+	- Environment variables: `FRONTEND_ORIGIN`, `CORS_ORIGINS`
+4. Faça deploy do frontend na Vercel.
+5. Na Vercel, configure `VITE_API_URL` com a URL publica do Render.
+6. Redeploy do frontend.
+
+## Scripts úteis na raiz
+
+- `npm run dev` -> inicia frontend
+- `npm run dev:frontend` -> inicia frontend
+- `npm run dev:backend` -> inicia backend
+- `npm run build` -> build do frontend
+- `npm run test` -> testes do frontend
+
+## Backend inicial
+
+O backend foi criado com uma rota de saúde:
+
+- `GET /api/health`
+
+Arquivo principal: `backend/src/server.js`
+
+Use `backend/.env.example` como base para variáveis de ambiente.
