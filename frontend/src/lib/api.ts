@@ -140,7 +140,10 @@ function normalizeUser(raw: any): SessionUser {
 
 function normalizeTime(rawTime: string) {
   if (!rawTime) return "";
-  return rawTime.length >= 8 ? rawTime.slice(0, 8) : `${rawTime}:00`;
+
+  const trimmed = rawTime.trim();
+  if (trimmed.length >= 5) return trimmed.slice(0, 5);
+  return trimmed;
 }
 
 function normalizeAppointment(raw: any): Appointment {
@@ -292,15 +295,17 @@ export async function getMyAppointments(): Promise<Appointment[]> {
 }
 
 export async function createAppointment(input: { date: string; time: string }) {
+  const time = normalizeTime(input.time);
+
   await apiRequest<unknown>(
     "/api/appointments",
     {
       method: "POST",
       body: JSON.stringify({
         appointment_date: input.date,
-        appointment_time: input.time,
+        appointment_time: time,
         appointmentDate: input.date,
-        appointmentTime: input.time,
+        appointmentTime: time,
       }),
     },
     true,
