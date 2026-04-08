@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   createAppointment,
+  getBackendHealth,
   getFriendlyErrorMessage,
   getSlotsByDate,
   type AppointmentSlot,
@@ -22,10 +23,24 @@ const Booking = () => {
   const [slots, setSlots] = useState<AppointmentSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [backendNow, setBackendNow] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
   }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    getBackendHealth()
+      .then((health) => {
+        const now = new Date(health.timestamp);
+        if (!Number.isNaN(now.getTime())) {
+          setBackendNow(now);
+        }
+      })
+      .catch(() => {
+        setBackendNow(null);
+      });
+  }, []);
 
   const availableDates = useMemo(
     () =>
@@ -58,8 +73,31 @@ const Booking = () => {
     loadSlots(selectedDate);
   }, [selectedDate, user]);
 
+  const isPastForBackendToday = (time: string) => {
+    if (!backendNow) return false;
+
+    const backendDate = format(backendNow, "yyyy-MM-dd");
+    if (selectedDate !== backendDate) return false;
+
+    const [hour, minute] = time.slice(0, 5).split(":").map(Number);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return false;
+
+    const slotMinutes = hour * 60 + minute;
+    const nowMinutes = backendNow.getHours() * 60 + backendNow.getMinutes();
+    return slotMinutes <= nowMinutes;
+  };
+
   const handleBook = async () => {
     if (!selectedDate || !selectedTime) return;
+
+    if (isPastForBackendToday(selectedTime)) {
+      toast({
+        title: "Erro ao agendar",
+        description: "Esse horario ja e considerado passado pelo backend. Escolha outro horario ou outra data.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -134,9 +172,16 @@ const Booking = () => {
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
               {slots.map((slot) => {
-                const disabled = slot.status !== "disponivel";
+                const blockedByBackendTime = isPastForBackendToday(slot.time);
+                const disabled = slot.status !== "disponivel" || blockedByBackendTime;
                 const isSelected = selectedTime === slot.time;
-                const statusLabel = slot.status === "pago" ? "Pago" : slot.status === "agendado" ? "Agendado" : "Disponivel";
+                const statusLabel = blockedByBackendTime
+                  ? "Passado"
+                  : slot.status === "pago"
+                    ? "Pago"
+                    : slot.status === "agendado"
+                      ? "Agendado"
+                      : "Disponivel";
                 const reasonLabel = slot.status === "desabilitado" && slot.reason ? slot.reason : null;
 
                 return (
