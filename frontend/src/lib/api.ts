@@ -51,7 +51,7 @@ export interface BackendHealth {
   timestamp: string;
 }
 
-export type AppointmentStatus = "agendado" | "pago" | "disponivel";
+export type AppointmentStatus = "agendado" | "pago" | "disponivel" | "desabilitado";
 
 export interface Appointment {
   id: string;
@@ -69,6 +69,7 @@ export interface AppointmentSlot {
   time: string;
   status: AppointmentStatus;
   appointmentId?: string;
+  reason?: string;
 }
 
 export interface RegisterPayload {
@@ -161,7 +162,20 @@ function normalizeSlot(raw: any): AppointmentSlot {
     time: normalizeTime(String(raw.time ?? raw.appointment_time ?? raw.appointmentTime ?? "")),
     status: (raw.status ?? "disponivel") as AppointmentStatus,
     appointmentId: raw.appointment_id ?? raw.appointmentId ?? raw.id ?? undefined,
+    reason: raw.reason ?? undefined,
   };
+}
+
+function extractCollection<T = any>(raw: any, keys: string[]): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (!raw || typeof raw !== "object") return [];
+
+  for (const key of keys) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (Array.isArray(value)) return value as T[];
+  }
+
+  return [];
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -255,8 +269,8 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
   );
 
   return {
-    token: data.token,
-    user: normalizeUser(data.user),
+    token: data.token ?? data.access_token,
+    user: normalizeUser(data.user ?? data.profile ?? data),
   };
 }
 
@@ -266,13 +280,15 @@ export async function me(): Promise<SessionUser> {
 }
 
 export async function getSlotsByDate(date: string): Promise<AppointmentSlot[]> {
-  const data = await apiRequest<any[]>(`/api/appointments/slots?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
-  return data.map(normalizeSlot).filter((slot) => slot.time.length > 0);
+  const data = await apiRequest<any>(`/api/appointments/slots?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
+  const slots = extractCollection(data, ["slots", "appointmentSlots", "items"]);
+  return slots.map(normalizeSlot).filter((slot) => slot.time.length > 0);
 }
 
 export async function getMyAppointments(): Promise<Appointment[]> {
-  const data = await apiRequest<any[]>("/api/appointments/me", { method: "GET" }, true);
-  return data.map(normalizeAppointment);
+  const data = await apiRequest<any>("/api/appointments/me", { method: "GET" }, true);
+  const appointments = extractCollection(data, ["appointments", "items"]);
+  return appointments.map(normalizeAppointment);
 }
 
 export async function createAppointment(input: { date: string; time: string }) {
@@ -296,8 +312,9 @@ export async function cancelMyAppointment(id: string) {
 }
 
 export async function getAdminAppointmentsByDate(date: string): Promise<Appointment[]> {
-  const data = await apiRequest<any[]>(`/api/admin/appointments?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
-  return data.map(normalizeAppointment);
+  const data = await apiRequest<any>(`/api/admin/appointments?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
+  const appointments = extractCollection(data, ["appointments", "items"]);
+  return appointments.map(normalizeAppointment);
 }
 
 export async function updateAdminAppointmentStatus(id: string, status: AppointmentStatus) {

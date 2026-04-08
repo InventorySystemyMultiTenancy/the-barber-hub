@@ -137,10 +137,11 @@ const Booking = () => {
                 const disabled = slot.status !== "disponivel";
                 const isSelected = selectedTime === slot.time;
                 const statusLabel = slot.status === "pago" ? "Pago" : slot.status === "agendado" ? "Agendado" : "Disponivel";
+                const reasonLabel = slot.status === "desabilitado" && slot.reason ? slot.reason : null;
 
                 return (
                   <button
-                    key={`${slot.time}-${slot.status}`}
+                    key={`${slot.time}-${slot.status}-${slot.reason || ""}`}
                     disabled={disabled}
                     onClick={() => setSelectedTime(slot.time)}
                     className={`rounded-lg p-3 text-center transition-all border font-heading ${
@@ -153,6 +154,7 @@ const Booking = () => {
                   >
                     <div>{slot.time.slice(0, 5)}</div>
                     <div className="text-[10px] mt-1">{statusLabel}</div>
+                    {reasonLabel && <div className="text-[10px] mt-1 opacity-80">{reasonLabel}</div>}
                   </button>
                 );
               })}
