@@ -229,9 +229,11 @@ async function apiRequest<T>(path: string, init?: RequestInit, requiresAuth = tr
 
   let response: Response;
   try {
+    const method = (init?.method || "GET").toUpperCase();
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers,
+      cache: method === "GET" ? "no-store" : init?.cache,
     });
   } catch (error) {
     throw new ApiClientError("Falha de conexao com backend.", 0, "BACKEND_UNAVAILABLE", error);

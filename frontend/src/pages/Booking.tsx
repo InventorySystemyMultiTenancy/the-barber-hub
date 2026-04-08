@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  ApiClientError,
   createAppointment,
   getBackendHealth,
   getFriendlyErrorMessage,
@@ -106,6 +107,17 @@ const Booking = () => {
       await loadSlots(selectedDate);
       navigate("/meus-agendamentos");
     } catch (error) {
+      if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
+        setSelectedTime("");
+        await loadSlots(selectedDate);
+        toast({
+          title: "Horario atualizado",
+          description: "Esse horario acabou de ser reservado. Escolha outro disponivel.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Erro ao agendar",
         description: getFriendlyErrorMessage(error),
