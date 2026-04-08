@@ -18,5 +18,13 @@ export async function getBackendHealth(): Promise<BackendHealth> {
     throw new Error(`Backend health check failed with status ${response.status}`);
   }
 
-  return (await response.json()) as BackendHealth;
+  const payload = (await response.json()) as
+    | BackendHealth
+    | { success?: boolean; data?: BackendHealth };
+
+  if ("data" in payload && payload.data) {
+    return payload.data;
+  }
+
+  return payload as BackendHealth;
 }
