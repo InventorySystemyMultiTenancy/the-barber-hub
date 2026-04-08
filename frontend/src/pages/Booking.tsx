@@ -69,6 +69,20 @@ const Booking = () => {
 
     setSubmitting(true);
     try {
+      const latestSlots = await getSlotsByDate(selectedDate);
+      setSlots(latestSlots);
+
+      const selectedSlot = latestSlots.find((slot) => slot.time === selectedTime);
+      if (!selectedSlot || selectedSlot.status !== "disponivel") {
+        setSelectedTime("");
+        toast({
+          title: "Horario nao disponivel",
+          description: "Atualizamos os horarios em tempo real. Escolha outro horario disponivel.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       await createAppointment({ date: selectedDate, time: selectedTime });
       toast({ title: "Agendamento confirmado!", description: `${format(new Date(selectedDate), "dd/MM/yyyy")} às ${selectedTime.slice(0, 5)}` });
       await loadSlots(selectedDate);
@@ -79,7 +93,7 @@ const Booking = () => {
         await loadSlots(selectedDate);
         toast({
           title: "Horario atualizado",
-          description: "Esse horario acabou de ser reservado. Escolha outro disponivel.",
+          description: "Esse horario nao pode mais ser reservado. Escolha outro disponivel.",
           variant: "destructive",
         });
         return;
