@@ -26,6 +26,14 @@ function inRange(date: string, start?: string, end?: string) {
   return date >= start && date <= end;
 }
 
+function logBookingDebug(step: string, payload: Record<string, unknown>) {
+  console.group(`[BOOKING_DEBUG] ${step}`);
+  Object.entries(payload).forEach(([key, value]) => {
+    console.log(`${key}:`, value);
+  });
+  console.groupEnd();
+}
+
 const Booking = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -83,6 +91,15 @@ const Booking = () => {
 
   const handleBook = async () => {
     if (!selectedDate || !selectedTime) return;
+
+    logBookingDebug("BOOK_CLICKED", {
+      selectedDate,
+      selectedTime,
+      weekStart: slotsMeta.weekStart,
+      weekEnd: slotsMeta.weekEnd,
+      timezone: slotsMeta.timezone,
+    });
+
     if (!inRange(selectedDate, slotsMeta.weekStart, slotsMeta.weekEnd)) {
       toast({
         title: "Data fora da semana ativa",
@@ -98,6 +115,13 @@ const Booking = () => {
       setSlots(latestSlots.slots);
       setSlotsMeta(latestSlots.meta || {});
 
+      logBookingDebug("PREFLIGHT_SLOTS", {
+        selectedDate,
+        selectedTime,
+        totalSlots: latestSlots.slots.length,
+        selectedSlot: latestSlots.slots.find((slot) => slot.time === selectedTime) || null,
+      });
+
       const selectedSlot = latestSlots.slots.find((slot) => slot.time === selectedTime);
       if (!selectedSlot || selectedSlot.status !== "disponivel") {
         setSelectedTime("");
@@ -109,11 +133,39 @@ const Booking = () => {
         return;
       }
 
+      logBookingDebug("POST_APPOINTMENT_REQUEST", {
+        appointment_date: selectedDate,
+        appointment_time: selectedTime,
+      });
+
       await createAppointment({ date: selectedDate, time: selectedTime });
+
+      logBookingDebug("POST_APPOINTMENT_SUCCESS", {
+        selectedDate,
+        selectedTime,
+      });
+
       toast({ title: "Agendamento confirmado!", description: `${format(new Date(selectedDate), "dd/MM/yyyy")} às ${selectedTime.slice(0, 5)}` });
       await loadSlots(selectedDate);
       navigate("/meus-agendamentos");
     } catch (error) {
+      if (error instanceof ApiClientError) {
+        logBookingDebug("POST_APPOINTMENT_ERROR", {
+          status: error.status,
+          code: error.code || null,
+          message: error.message,
+          details: error.details || null,
+          selectedDate,
+          selectedTime,
+        });
+      } else {
+        logBookingDebug("POST_APPOINTMENT_ERROR_UNKNOWN", {
+          error,
+          selectedDate,
+          selectedTime,
+        });
+      }
+
       if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
         setSelectedTime("");
         await loadSlots(selectedDate);
