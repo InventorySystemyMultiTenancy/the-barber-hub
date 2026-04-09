@@ -240,11 +240,16 @@ function normalizeUser(raw: any): SessionUser {
 }
 
 function normalizeBirthdayDiscount(raw: any): BirthdayDiscount {
+  const discountPercentRaw =
+    raw?.discount_percent ?? raw?.discountPercent ?? raw?.discount_percentage ?? raw?.discountPercentage ?? 0;
+  const discountPercent = Number(discountPercentRaw || 0);
+  const activeFlag = raw?.active ?? raw?.is_active ?? raw?.applied ?? raw?.enabled;
+
   return {
-    active: Boolean(raw?.active ?? false),
-    serviceType: raw?.service_type ?? raw?.serviceType ?? undefined,
-    discountPercent: raw?.discount_percent !== undefined ? Number(raw.discount_percent) : raw?.discountPercent !== undefined ? Number(raw.discountPercent) : undefined,
-    message: raw?.message ?? null,
+    active: Boolean(activeFlag ?? discountPercent > 0),
+    serviceType: raw?.service_type ?? raw?.serviceType ?? raw?.service ?? undefined,
+    discountPercent: Number.isFinite(discountPercent) ? discountPercent : undefined,
+    message: raw?.message ?? raw?.congratulation_message ?? raw?.congratulations_message ?? null,
   };
 }
 
