@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ApiClientError,
+  type BirthdayDiscount,
   clearStoredSession,
   getFriendlyErrorMessage,
   getStoredSessionUser,
@@ -20,10 +21,11 @@ type AuthError = {
 
 interface AuthContextType {
   user: SessionUser | null;
+  birthdayDiscount: BirthdayDiscount;
   isAdmin: boolean;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, phone: string) => Promise<{ error: AuthError | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUp: (input: { fullName: string; phone: string; birthDate: string; password: string; email?: string }) => Promise<{ error: AuthError | null }>;
+  signIn: (phone: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
@@ -45,6 +47,7 @@ function toAuthError(error: unknown): AuthError {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [birthdayDiscount, setBirthdayDiscount] = useState<BirthdayDiscount>({ active: false });
   const [loading, setLoading] = useState(true);
 
   const isAdmin = useMemo(() => user?.role === "admin", [user]);
@@ -53,16 +56,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem(SESSION_TOKEN_KEY);
     if (!token) {
       setUser(null);
+      setBirthdayDiscount({ active: false });
       return;
     }
 
     try {
-      const freshUser = await me();
-      setUser(freshUser);
-      setStoredSession({ token, user: freshUser });
+      const sessionInfo = await me();
+      setUser(sessionInfo.user);
+      setBirthdayDiscount(sessionInfo.birthdayDiscount);
+      setStoredSession({ token, user: sessionInfo.user });
     } catch {
       clearStoredSession();
       setUser(null);
+      setBirthdayDiscount({ active: false });
     }
   };
 
@@ -80,23 +86,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     boot();
   }, []);
 
-  const signUp = async (email: string, password: string, fullName: string, phone: string) => {
+  const signUp = async (input: { fullName: string; phone: string; birthDate: string; password: string; email?: string }) => {
     try {
-      await register({ email, password, fullName, phone });
-      const session = await login({ email, password });
+      await register(input);
+      const session = await login({ phone: input.phone, password: input.password });
       setStoredSession(session);
       setUser(session.user);
+      await refreshSession();
       return { error: null };
     } catch (error) {
       return { error: toAuthError(error) };
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (phone: string, password: string) => {
     try {
-      const session = await login({ email, password });
+      const session = await login({ phone, password });
       setStoredSession(session);
       setUser(session.user);
+      await refreshSession();
       return { error: null };
     } catch (error) {
       return { error: toAuthError(error) };
@@ -106,12 +114,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     clearStoredSession();
     setUser(null);
+    setBirthdayDiscount({ active: false });
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        birthdayDiscount,
         isAdmin,
         loading,
         signUp,

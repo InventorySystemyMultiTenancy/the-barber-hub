@@ -39,10 +39,23 @@ export class ApiClientError extends Error {
 
 export interface SessionUser {
   id: string;
-  email: string;
+  email?: string;
   fullName?: string;
   phone?: string;
+  birthDate?: string;
   role?: "admin" | "client" | string;
+}
+
+export interface BirthdayDiscount {
+  active: boolean;
+  serviceType?: string;
+  discountPercent?: number;
+  message?: string | null;
+}
+
+export interface SessionInfo {
+  user: SessionUser;
+  birthdayDiscount: BirthdayDiscount;
 }
 
 export interface BackendHealth {
@@ -65,6 +78,14 @@ export interface Appointment {
   fullName?: string;
   email?: string;
   phone?: string;
+  discount?: {
+    applied: boolean;
+    type?: string;
+    discountPercent?: number;
+    basePrice?: number;
+    finalPrice?: number;
+    message?: string;
+  };
 }
 
 export interface AppointmentService {
@@ -147,13 +168,14 @@ export interface SlotsByDateResponse {
 
 export interface RegisterPayload {
   fullName: string;
-  email: string;
+  email?: string;
   phone: string;
+  birthDate: string;
   password: string;
 }
 
 export interface LoginPayload {
-  email: string;
+  phone: string;
   password: string;
 }
 
@@ -209,10 +231,20 @@ export function getFriendlyErrorMessage(error: unknown) {
 function normalizeUser(raw: any): SessionUser {
   return {
     id: String(raw.id ?? raw.user_id ?? raw.userId ?? ""),
-    email: String(raw.email ?? ""),
+    email: raw.email ? String(raw.email) : undefined,
     fullName: raw.full_name ?? raw.fullName ?? undefined,
     phone: raw.phone ?? undefined,
+    birthDate: normalizeDateOnly(raw.birth_date ?? raw.birthDate ?? "") || undefined,
     role: raw.role ?? "client",
+  };
+}
+
+function normalizeBirthdayDiscount(raw: any): BirthdayDiscount {
+  return {
+    active: Boolean(raw?.active ?? false),
+    serviceType: raw?.service_type ?? raw?.serviceType ?? undefined,
+    discountPercent: raw?.discount_percent !== undefined ? Number(raw.discount_percent) : raw?.discountPercent !== undefined ? Number(raw.discountPercent) : undefined,
+    message: raw?.message ?? null,
   };
 }
 
@@ -245,6 +277,8 @@ function normalizeDateOnly(rawDate: unknown) {
 }
 
 function normalizeAppointment(raw: any): Appointment {
+  const discountRaw = raw.discount ?? raw.appointment_discount ?? raw.appointmentDiscount ?? null;
+
   return {
     id: String(raw.id),
     appointmentDate: normalizeDateOnly(raw.appointment_date ?? raw.appointmentDate ?? ""),
@@ -257,6 +291,31 @@ function normalizeAppointment(raw: any): Appointment {
     fullName: raw.full_name ?? raw.fullName ?? raw.user?.full_name ?? raw.user?.fullName ?? undefined,
     email: raw.email ?? raw.user?.email ?? undefined,
     phone: raw.phone ?? raw.user?.phone ?? undefined,
+    discount: discountRaw
+      ? {
+          applied: Boolean(discountRaw.applied ?? false),
+          type: discountRaw.type ?? undefined,
+          discountPercent:
+            discountRaw.discount_percent !== undefined
+              ? Number(discountRaw.discount_percent)
+              : discountRaw.discountPercent !== undefined
+                ? Number(discountRaw.discountPercent)
+                : undefined,
+          basePrice:
+            discountRaw.base_price !== undefined
+              ? Number(discountRaw.base_price)
+              : discountRaw.basePrice !== undefined
+                ? Number(discountRaw.basePrice)
+                : undefined,
+          finalPrice:
+            discountRaw.final_price !== undefined
+              ? Number(discountRaw.final_price)
+              : discountRaw.finalPrice !== undefined
+                ? Number(discountRaw.finalPrice)
+                : undefined,
+          message: discountRaw.message ?? undefined,
+        }
+      : undefined,
   };
 }
 
@@ -539,10 +598,10 @@ export async function register(payload: RegisterPayload) {
     {
       method: "POST",
       body: JSON.stringify({
-        fullName: payload.fullName,
         full_name: payload.fullName,
-        email: payload.email,
+        email: payload.email || undefined,
         phone: payload.phone,
+        birth_date: payload.birthDate,
         password: payload.password,
       }),
     },
@@ -555,7 +614,10 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
     "/api/auth/login",
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        phone: payload.phone,
+        password: payload.password,
+      }),
     },
     false,
   );
@@ -566,9 +628,14 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
   };
 }
 
-export async function me(): Promise<SessionUser> {
+export async function me(): Promise<SessionInfo> {
   const data = await apiRequest<any>("/api/auth/me", { method: "GET" }, true);
-  return normalizeUser(data.user ?? data);
+
+  const source = data?.user ? data : { user: data, birthday_discount: null };
+  return {
+    user: normalizeUser(source.user ?? source),
+    birthdayDiscount: normalizeBirthdayDiscount(source.birthday_discount ?? source.birthdayDiscount ?? null),
+  };
 }
 
 export async function getSlotsByDate(date: string): Promise<SlotsByDateResponse> {

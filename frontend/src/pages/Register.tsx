@@ -10,6 +10,7 @@ import { Scissors } from "lucide-react";
 const Register = () => {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,8 +23,20 @@ const Register = () => {
       toast({ title: "Senha deve ter no mínimo 6 caracteres", variant: "destructive" });
       return;
     }
+
+    if (!birthDate) {
+      toast({ title: "Informe sua data de nascimento", variant: "destructive" });
+      return;
+    }
+
     setLoading(true);
-    const { error } = await signUp(email, password, fullName, phone);
+    const { error } = await signUp({
+      fullName,
+      phone,
+      birthDate,
+      password,
+      email: email || undefined,
+    });
     setLoading(false);
     if (error) {
       toast({ title: "Erro ao cadastrar", description: error.message, variant: "destructive" });
@@ -54,8 +67,12 @@ const Register = () => {
             <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 99999-9999" required className="bg-muted/50" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required className="bg-muted/50" />
+            <Label htmlFor="birthDate">Data de nascimento</Label>
+            <Input id="birthDate" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} required className="bg-muted/50" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email (opcional)</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" className="bg-muted/50" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Senha</Label>

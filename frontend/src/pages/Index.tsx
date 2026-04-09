@@ -1,13 +1,20 @@
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Scissors, Clock, CalendarDays } from "lucide-react";
+import { Scissors, Clock, CalendarDays, Gift } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import heroImage from "@/assets/hero-barbershop.jpg";
 import logoImage from "@/assets/Chincoa Cort's logo.png";
 
 const Index = () => {
-  const { user } = useAuth();
+  const { user, birthdayDiscount, refreshSession } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      refreshSession();
+    }
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -22,6 +29,17 @@ const Index = () => {
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/60 to-background" />
 
         <div className="relative z-10 text-center px-4 max-w-3xl mx-auto animate-fade-in">
+          {user && birthdayDiscount.active && (
+            <div className="mb-4 glass rounded-lg border border-primary/40 bg-primary/10 p-4 text-left sm:text-center">
+              <div className="inline-flex items-center gap-2 text-primary font-semibold">
+                <Gift className="h-4 w-4" />
+                Parabens! Desconto de aniversario ativo
+              </div>
+              <p className="text-sm text-foreground mt-2">{birthdayDiscount.message || "Voce tem 50% no corte hoje."}</p>
+              <p className="text-sm font-semibold text-primary mt-1">50% no corte hoje</p>
+            </div>
+          )}
+
           <img
             src={logoImage}
             alt="Logo Chincoa Cortes"

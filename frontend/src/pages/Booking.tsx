@@ -69,6 +69,13 @@ const Booking = () => {
   const [services, setServices] = useState<AppointmentService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
+  const [lastDiscountSummary, setLastDiscountSummary] = useState<{
+    applied: boolean;
+    message?: string;
+    basePrice?: number;
+    finalPrice?: number;
+    discountPercent?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -203,6 +210,7 @@ const Booking = () => {
     }
 
     setSelectedTime("");
+    setLastDiscountSummary(null);
     loadSlots(selectedDate);
   }, [selectedDate, user, bookingWindowStart, bookingWindowEnd]);
 
@@ -310,6 +318,7 @@ const Booking = () => {
       });
 
       const summary = getAppointmentSummary(createdAppointment);
+      const discount = createdAppointment.discount;
 
       logBookingDebug("POST_APPOINTMENT_SUCCESS", {
         selectedDate,
@@ -323,6 +332,23 @@ const Booking = () => {
         title: "Agendamento confirmado!",
         description: `${summary.serviceLabel} • ${formatMoney(summary.servicePrice)} • ${summary.dateValue} às ${summary.timeValue.slice(0, 5)}`,
       });
+
+      if (discount?.applied) {
+        setLastDiscountSummary({
+          applied: true,
+          message: discount.message,
+          basePrice: discount.basePrice,
+          finalPrice: discount.finalPrice,
+          discountPercent: discount.discountPercent,
+        });
+
+        toast({
+          title: "Desconto de aniversario aplicado",
+          description: discount.message || `Preco original ${formatMoney(discount.basePrice || summary.servicePrice)} • preco final ${formatMoney(discount.finalPrice || summary.servicePrice)}`,
+        });
+      } else {
+        setLastDiscountSummary(null);
+      }
 
       const bookingWhatsAppMessage = [
         `Olá! Meu nome é ${user?.fullName || "Cliente"}.`,
@@ -594,6 +620,21 @@ const Booking = () => {
                   <p className="text-sm text-muted-foreground">
                     {selectedService.label} • {formatMoney(selectedService.price)}
                   </p>
+                )}
+
+                {lastDiscountSummary?.applied && (
+                  <div className="mt-2 rounded-md border border-primary/40 bg-primary/10 p-2">
+                    <p className="text-sm font-semibold text-primary">Desconto de aniversario aplicado</p>
+                    {lastDiscountSummary.message && (
+                      <p className="text-xs text-muted-foreground mt-1">{lastDiscountSummary.message}</p>
+                    )}
+                    <p className="text-xs text-foreground mt-1">
+                      Preco original: {formatMoney(lastDiscountSummary.basePrice || selectedService?.price || 0)}
+                    </p>
+                    <p className="text-xs text-foreground">
+                      Preco final: {formatMoney(lastDiscountSummary.finalPrice || selectedService?.price || 0)}
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
