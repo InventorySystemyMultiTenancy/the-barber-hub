@@ -12,6 +12,7 @@ import {
   getFriendlyErrorMessage,
   getSlotsByDate,
   type AppointmentSlot,
+  type SlotsMeta,
 } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
@@ -20,12 +21,18 @@ function parseLocalDate(date: string) {
   return new Date(year, month - 1, day);
 }
 
+function inRange(date: string, start?: string, end?: string) {
+  if (!start || !end) return true;
+  return date >= start && date <= end;
+}
+
 const Booking = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<string>(format(startOfToday(), "yyyy-MM-dd"));
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [slots, setSlots] = useState<AppointmentSlot[]>([]);
+  const [slotsMeta, setSlotsMeta] = useState<SlotsMeta>({});
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -37,7 +44,7 @@ const Booking = () => {
     () =>
       Array.from({ length: 14 }, (_, i) => addDays(startOfToday(), i))
         .filter((d) => d.getDay() !== 0)
-        .slice(0, 7),
+        .slice(0, 14),
     [],
   );
 
@@ -45,7 +52,17 @@ const Booking = () => {
     setSlotsLoading(true);
     try {
       const response = await getSlotsByDate(date);
-      setSlots(response);
+      setSlots(response.slots);
+      setSlotsMeta(response.meta || {});
+
+      if (response.meta?.weekStart && response.meta?.weekEnd && !inRange(date, response.meta.weekStart, response.meta.weekEnd)) {
+        setSelectedTime("");
+        toast({
+          title: "Data fora da semana ativa",
+          description: `Selecione uma data entre ${response.meta.weekStart} e ${response.meta.weekEnd}.`,
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       setSlots([]);
       toast({
@@ -66,13 +83,22 @@ const Booking = () => {
 
   const handleBook = async () => {
     if (!selectedDate || !selectedTime) return;
+    if (!inRange(selectedDate, slotsMeta.weekStart, slotsMeta.weekEnd)) {
+      toast({
+        title: "Data fora da semana ativa",
+        description: "Escolha um dia dentro da semana atual de atendimento.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSubmitting(true);
     try {
       const latestSlots = await getSlotsByDate(selectedDate);
-      setSlots(latestSlots);
+      setSlots(latestSlots.slots);
+      setSlotsMeta(latestSlots.meta || {});
 
-      const selectedSlot = latestSlots.find((slot) => slot.time === selectedTime);
+      const selectedSlot = latestSlots.slots.find((slot) => slot.time === selectedTime);
       if (!selectedSlot || selectedSlot.status !== "disponivel") {
         setSelectedTime("");
         toast({
@@ -138,9 +164,24 @@ const Booking = () => {
               return (
                 <button
                   key={dateStr}
-                  onClick={() => setSelectedDate(dateStr)}
+                  onClick={() => {
+                    if (!inRange(dateStr, slotsMeta.weekStart, slotsMeta.weekEnd)) {
+                      toast({
+                        title: "Semana atual apenas",
+                        description: "Essa data esta fora da semana ativa liberada no backend.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setSelectedDate(dateStr);
+                  }}
+                  disabled={!inRange(dateStr, slotsMeta.weekStart, slotsMeta.weekEnd)}
                   className={`rounded-lg p-3 text-center transition-all border ${
-                    isSelected ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/30"
+                    !inRange(dateStr, slotsMeta.weekStart, slotsMeta.weekEnd)
+                      ? "border-border bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
+                      : isSelected
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-card hover:border-primary/30"
                   }`}
                 >
                   <div className="font-heading text-sm font-semibold uppercase">{format(d, "EEE", { locale: ptBR })}</div>
@@ -157,6 +198,13 @@ const Booking = () => {
             <Clock className="h-5 w-5 text-primary" />
             <h2 className="font-heading text-lg font-semibold">Horarios disponiveis</h2>
           </div>
+
+          {slotsMeta.weekStart && slotsMeta.weekEnd && (
+            <p className="text-xs text-muted-foreground mb-3">
+              Semana ativa: {slotsMeta.weekStart} a {slotsMeta.weekEnd}
+              {slotsMeta.timezone ? ` (${slotsMeta.timezone})` : ""}
+            </p>
+          )}
 
           {slotsLoading ? (
             <p className="text-muted-foreground">Carregando horarios...</p>

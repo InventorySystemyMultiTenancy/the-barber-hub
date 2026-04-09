@@ -72,6 +72,19 @@ export interface AppointmentSlot {
   reason?: string;
 }
 
+export interface SlotsMeta {
+  timezone?: string;
+  serverNowDate?: string;
+  serverNow?: string;
+  weekStart?: string;
+  weekEnd?: string;
+}
+
+export interface SlotsByDateResponse {
+  slots: AppointmentSlot[];
+  meta: SlotsMeta;
+}
+
 export interface RegisterPayload {
   fullName: string;
   email: string;
@@ -120,10 +133,14 @@ export function getFriendlyErrorMessage(error: unknown) {
   }
 
   if (error.status === 0) return "Backend indisponivel no momento.";
-  if (error.status === 401) return "Sessao expirada. Faça login novamente.";
-  if (error.status === 403) return "Voce nao tem permissao para esta acao.";
+  if (error.status === 401 || error.code === "AUTH_TOKEN_EXPIRED") return "Sessao expirada. Faça login novamente.";
+  if (error.status === 403 || error.code === "FORBIDDEN_ADMIN_ONLY") return "Voce nao tem permissao para esta acao.";
   if (error.status === 404) return "Recurso nao encontrado.";
   if (error.code === "SLOT_ALREADY_BOOKED") return "Horario ja reservado. Escolha outro.";
+  if (error.code === "SLOT_DISABLED") return "Esse horario esta desabilitado.";
+  if (error.code === "DAY_DISABLED") return "Esse dia esta indisponivel para atendimento.";
+  if (error.code === "PAST_APPOINTMENT") return "Nao e permitido agendar horario passado no dia atual.";
+  if (error.code === "VALIDATION_ERROR") return "Dados invalidos para esta operacao.";
 
   return error.message || "Erro inesperado ao comunicar com o backend.";
 }
@@ -166,6 +183,16 @@ function normalizeSlot(raw: any): AppointmentSlot {
     status: (raw.status ?? "disponivel") as AppointmentStatus,
     appointmentId: raw.appointment_id ?? raw.appointmentId ?? raw.id ?? undefined,
     reason: raw.reason ?? undefined,
+  };
+}
+
+function normalizeSlotsMeta(raw: any): SlotsMeta {
+  return {
+    timezone: raw?.timezone ?? undefined,
+    serverNowDate: raw?.server_now_date ?? raw?.serverNowDate ?? undefined,
+    serverNow: raw?.server_now ?? raw?.serverNow ?? undefined,
+    weekStart: raw?.week_start ?? raw?.weekStart ?? undefined,
+    weekEnd: raw?.week_end ?? raw?.weekEnd ?? undefined,
   };
 }
 
@@ -284,10 +311,15 @@ export async function me(): Promise<SessionUser> {
   return normalizeUser(data.user ?? data);
 }
 
-export async function getSlotsByDate(date: string): Promise<AppointmentSlot[]> {
+export async function getSlotsByDate(date: string): Promise<SlotsByDateResponse> {
   const data = await apiRequest<any>(`/api/appointments/slots?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
   const slots = extractCollection(data, ["slots", "appointmentSlots", "items"]);
-  return slots.map(normalizeSlot).filter((slot) => slot.time.length > 0);
+  const meta = normalizeSlotsMeta(data?.meta ?? data);
+
+  return {
+    slots: slots.map(normalizeSlot).filter((slot) => slot.time.length > 0),
+    meta,
+  };
 }
 
 export async function getMyAppointments(): Promise<Appointment[]> {
