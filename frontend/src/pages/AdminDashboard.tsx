@@ -47,6 +47,23 @@ function formatMoney(value: number) {
   }).format(value || 0);
 }
 
+function getDiscountPriceDetails(input: { base?: number; final?: number; percent?: number; fallback: number }) {
+  const final = Number.isFinite(input.final as number) ? Number(input.final) : input.fallback;
+  const baseFromRaw = Number.isFinite(input.base as number) ? Number(input.base) : undefined;
+  const percent = Number.isFinite(input.percent as number) ? Number(input.percent) : undefined;
+
+  if (baseFromRaw !== undefined) {
+    return { base: baseFromRaw, final };
+  }
+
+  if (percent && percent > 0 && percent < 100) {
+    const estimatedBase = final / (1 - percent / 100);
+    return { base: estimatedBase, final };
+  }
+
+  return { base: final, final };
+}
+
 function getCurrentPeriod() {
   const now = new Date();
   return {
@@ -558,18 +575,29 @@ const AdminDashboard = () => {
                           <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
                           <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
                           {appointment.discount?.applied && (
+                            (() => {
+                              const prices = getDiscountPriceDetails({
+                                base: appointment.discount?.basePrice,
+                                final: appointment.discount?.finalPrice,
+                                percent: appointment.discount?.discountPercent,
+                                fallback: appointment.price ?? 0,
+                              });
+
+                              return (
                             <div className="mt-1 rounded-md border border-primary/40 bg-primary/10 p-2">
                               <p className="text-xs font-semibold text-primary">Desconto de aniversario aplicado</p>
                               {appointment.discount.message && (
                                 <p className="text-xs text-muted-foreground">{appointment.discount.message}</p>
                               )}
                               <p className="text-xs text-foreground">
-                                Original: {formatMoney(appointment.discount.basePrice ?? appointment.price ?? 0)}
+                                Original: {formatMoney(prices.base)}
                               </p>
                               <p className="text-xs text-foreground">
-                                Final: {formatMoney(appointment.discount.finalPrice ?? appointment.price ?? 0)}
+                                Final: {formatMoney(prices.final)}
                               </p>
                             </div>
+                              );
+                            })()
                           )}
                           <p className="text-xs text-muted-foreground">
                             {appointment.phone || "-"} · {appointment.email || "-"}

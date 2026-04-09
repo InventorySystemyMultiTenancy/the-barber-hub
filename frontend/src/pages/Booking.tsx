@@ -44,6 +44,23 @@ function isDateWithinWindow(date: string, start: string, end: string) {
   return date >= start && date <= end;
 }
 
+function normalizeServiceToken(value?: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function serviceMatchesDiscount(selectedKey?: string, discountServiceType?: string) {
+  const selected = normalizeServiceToken(selectedKey);
+  const discountType = normalizeServiceToken(discountServiceType);
+
+  if (!selected) return false;
+  if (!discountType) return true;
+  return selected === discountType || selected.includes(discountType) || discountType.includes(selected);
+}
+
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
   console.group(`[BOOKING_DEBUG] ${step}`);
   Object.entries(payload).forEach(([key, value]) => {
@@ -220,10 +237,16 @@ const Booking = () => {
   }, [user]);
 
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
+  const birthdayPercent = birthdayDiscount.discountPercent && birthdayDiscount.discountPercent > 0 ? birthdayDiscount.discountPercent : 50;
   const hasBirthdayDiscountForSelectedService =
     Boolean(birthdayDiscount.active) &&
     Boolean(selectedServiceKey) &&
-    (!birthdayDiscount.serviceType || birthdayDiscount.serviceType === selectedServiceKey);
+    serviceMatchesDiscount(selectedServiceKey, birthdayDiscount.serviceType);
+
+  const getDiscountedPrice = (basePrice: number) => {
+    const safeBase = Number(basePrice || 0);
+    return safeBase - safeBase * (birthdayPercent / 100);
+  };
 
   const getAppointmentSummary = (appointment: Appointment) => {
     const serviceLabel = appointment.serviceLabel || selectedService?.label || selectedServiceKey || "Servico";
@@ -554,6 +577,8 @@ const Booking = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {services.map((service) => {
                 const isSelected = selectedServiceKey === service.key;
+                const serviceHasBirthdayPromo = Boolean(birthdayDiscount.active) && serviceMatchesDiscount(service.key, birthdayDiscount.serviceType);
+                const discountedPrice = getDiscountedPrice(service.price);
                 return (
                   <button
                     key={service.key}
@@ -563,7 +588,16 @@ const Booking = () => {
                     }`}
                   >
                     <p className="font-heading font-semibold">{service.label}</p>
-                    <p className="text-sm text-muted-foreground">{formatMoney(service.price)}</p>
+                    {serviceHasBirthdayPromo ? (
+                      <div className="mt-1">
+                        <p className="text-xs text-muted-foreground line-through">{formatMoney(service.price)}</p>
+                        <p className="text-sm text-primary font-semibold">
+                          {formatMoney(discountedPrice)} ({birthdayPercent}% OFF aniversario)
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">{formatMoney(service.price)}</p>
+                    )}
                   </button>
                 );
               })}
@@ -634,9 +668,17 @@ const Booking = () => {
                 </p>
                 <p className="text-primary font-heading text-lg">{selectedTime.slice(0, 5)}</p>
                 {selectedService && (
-                  <p className="text-sm text-muted-foreground">
-                    {selectedService.label} • {formatMoney(selectedService.price)}
-                  </p>
+                  <div className="text-sm text-muted-foreground">
+                    <p>{selectedService.label}</p>
+                    {hasBirthdayDiscountForSelectedService ? (
+                      <p>
+                        <span className="line-through opacity-80 mr-2">{formatMoney(selectedService.price)}</span>
+                        <span className="text-primary font-semibold">{formatMoney(getDiscountedPrice(selectedService.price))}</span>
+                      </p>
+                    ) : (
+                      <p>{formatMoney(selectedService.price)}</p>
+                    )}
+                  </div>
                 )}
 
                 {selectedService && hasBirthdayDiscountForSelectedService && (

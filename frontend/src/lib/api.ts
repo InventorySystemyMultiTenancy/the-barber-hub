@@ -282,7 +282,72 @@ function normalizeDateOnly(rawDate: unknown) {
 }
 
 function normalizeAppointment(raw: any): Appointment {
-  const discountRaw = raw.discount ?? raw.appointment_discount ?? raw.appointmentDiscount ?? null;
+  const discountRaw =
+    raw.discount ??
+    raw.appointment_discount ??
+    raw.appointmentDiscount ??
+    raw.birthday_discount ??
+    raw.birthdayDiscount ??
+    null;
+
+  const discountAppliedByFlags = Boolean(
+    raw.discount_applied ??
+      raw.discountApplied ??
+      raw.has_discount ??
+      raw.hasDiscount ??
+      raw.is_birthday_discount ??
+      raw.isBirthdayDiscount,
+  );
+
+  const discountType =
+    raw.discount_type ??
+    raw.discountType ??
+    raw.promo_type ??
+    raw.promoType ??
+    discountRaw?.type ??
+    undefined;
+
+  const discountPercentFromRaw =
+    discountRaw?.discount_percent ??
+    discountRaw?.discountPercent ??
+    raw.discount_percent ??
+    raw.discountPercent ??
+    raw.discount_percentage ??
+    raw.discountPercentage;
+
+  const basePriceFromRaw =
+    discountRaw?.base_price ??
+    discountRaw?.basePrice ??
+    raw.base_price ??
+    raw.basePrice ??
+    raw.original_price ??
+    raw.originalPrice;
+
+  const finalPriceFromRaw =
+    discountRaw?.final_price ??
+    discountRaw?.finalPrice ??
+    raw.final_price ??
+    raw.finalPrice ??
+    raw.price;
+
+  const normalizedDiscountPercent =
+    discountPercentFromRaw !== undefined && discountPercentFromRaw !== null
+      ? Number(discountPercentFromRaw)
+      : undefined;
+
+  const normalizedBasePrice =
+    basePriceFromRaw !== undefined && basePriceFromRaw !== null ? Number(basePriceFromRaw) : undefined;
+
+  const normalizedFinalPrice =
+    finalPriceFromRaw !== undefined && finalPriceFromRaw !== null ? Number(finalPriceFromRaw) : undefined;
+
+  const isBirthdayType = String(discountType || "").toLowerCase().includes("birthday") || Boolean(raw.is_birthday_discount ?? raw.isBirthdayDiscount);
+
+  const hasAnyDiscountSignal =
+    Boolean(discountRaw) ||
+    discountAppliedByFlags ||
+    isBirthdayType ||
+    (normalizedDiscountPercent !== undefined && normalizedDiscountPercent > 0);
 
   return {
     id: String(raw.id),
@@ -296,29 +361,20 @@ function normalizeAppointment(raw: any): Appointment {
     fullName: raw.full_name ?? raw.fullName ?? raw.user?.full_name ?? raw.user?.fullName ?? undefined,
     email: raw.email ?? raw.user?.email ?? undefined,
     phone: raw.phone ?? raw.user?.phone ?? undefined,
-    discount: discountRaw
+    discount: hasAnyDiscountSignal
       ? {
-          applied: Boolean(discountRaw.applied ?? false),
-          type: discountRaw.type ?? undefined,
-          discountPercent:
-            discountRaw.discount_percent !== undefined
-              ? Number(discountRaw.discount_percent)
-              : discountRaw.discountPercent !== undefined
-                ? Number(discountRaw.discountPercent)
-                : undefined,
-          basePrice:
-            discountRaw.base_price !== undefined
-              ? Number(discountRaw.base_price)
-              : discountRaw.basePrice !== undefined
-                ? Number(discountRaw.basePrice)
-                : undefined,
-          finalPrice:
-            discountRaw.final_price !== undefined
-              ? Number(discountRaw.final_price)
-              : discountRaw.finalPrice !== undefined
-                ? Number(discountRaw.finalPrice)
-                : undefined,
-          message: discountRaw.message ?? undefined,
+          applied: Boolean(discountRaw?.applied ?? discountAppliedByFlags ?? isBirthdayType ?? false),
+          type: discountType,
+          discountPercent: normalizedDiscountPercent,
+          basePrice: normalizedBasePrice,
+          finalPrice: normalizedFinalPrice,
+          message:
+            discountRaw?.message ??
+            raw.discount_message ??
+            raw.discountMessage ??
+            raw.promo_message ??
+            raw.promoMessage ??
+            undefined,
         }
       : undefined,
   };

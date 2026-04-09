@@ -16,6 +16,23 @@ function formatMoney(value: number) {
   }).format(value || 0);
 }
 
+function getDiscountPriceDetails(input: { base?: number; final?: number; percent?: number; fallback: number }) {
+  const final = Number.isFinite(input.final as number) ? Number(input.final) : input.fallback;
+  const baseFromRaw = Number.isFinite(input.base as number) ? Number(input.base) : undefined;
+  const percent = Number.isFinite(input.percent as number) ? Number(input.percent) : undefined;
+
+  if (baseFromRaw !== undefined) {
+    return { base: baseFromRaw, final };
+  }
+
+  if (percent && percent > 0 && percent < 100) {
+    const estimatedBase = final / (1 - percent / 100);
+    return { base: estimatedBase, final };
+  }
+
+  return { base: final, final };
+}
+
 function parseLocalDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (match) {
@@ -130,6 +147,13 @@ const MyAppointments = () => {
           <div className="space-y-4">
             {appointments.map((appointment) => {
               const status = statusLabel(appointment.status);
+              const discountPrices = getDiscountPriceDetails({
+                base: appointment.discount?.basePrice,
+                final: appointment.discount?.finalPrice,
+                percent: appointment.discount?.discountPercent,
+                fallback: appointment.price ?? 0,
+              });
+
               return (
                 <div key={appointment.id} className="glass rounded-lg p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -148,10 +172,10 @@ const MyAppointments = () => {
                           <p className="text-xs text-muted-foreground mt-1">{appointment.discount.message}</p>
                         )}
                         <p className="text-xs text-foreground mt-1">
-                          Original: {formatMoney(appointment.discount.basePrice ?? appointment.price ?? 0)}
+                          Original: {formatMoney(discountPrices.base)}
                         </p>
                         <p className="text-xs text-foreground">
-                          Final: {formatMoney(appointment.discount.finalPrice ?? appointment.price ?? 0)}
+                          Final: {formatMoney(discountPrices.final)}
                         </p>
                       </div>
                     )}
