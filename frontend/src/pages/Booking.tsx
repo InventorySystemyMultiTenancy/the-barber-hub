@@ -32,6 +32,18 @@ function formatMoney(value: number) {
   }).format(value || 0);
 }
 
+function getDefaultBookingWindow() {
+  const today = startOfToday();
+  return {
+    start: format(today, "yyyy-MM-dd"),
+    end: format(addDays(today, 15), "yyyy-MM-dd"),
+  };
+}
+
+function isDateWithinWindow(date: string, start: string, end: string) {
+  return date >= start && date <= end;
+}
+
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
   console.group(`[BOOKING_DEBUG] ${step}`);
   Object.entries(payload).forEach(([key, value]) => {
@@ -43,10 +55,14 @@ function logBookingDebug(step: string, payload: Record<string, unknown>) {
 const Booking = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [selectedDate, setSelectedDate] = useState<string>(format(startOfToday(), "yyyy-MM-dd"));
+  const defaultWindow = getDefaultBookingWindow();
+  const [selectedDate, setSelectedDate] = useState<string>(defaultWindow.start);
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [slots, setSlots] = useState<AppointmentSlot[]>([]);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
   const [slotsMeta, setSlotsMeta] = useState<SlotsMeta>({});
+  const [bookingWindowStart, setBookingWindowStart] = useState(defaultWindow.start);
+  const [bookingWindowEnd, setBookingWindowEnd] = useState(defaultWindow.end);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [conflictedTimesByDate, setConflictedTimesByDate] = useState<Record<string, string[]>>({});
@@ -59,11 +75,18 @@ const Booking = () => {
   }, [user, authLoading, navigate]);
 
   const availableDates = useMemo(
-    () =>
-      Array.from({ length: 14 }, (_, i) => addDays(startOfToday(), i))
-        .filter((d) => d.getDay() !== 0)
-        .slice(0, 14),
-    [],
+    () => {
+      const start = parseLocalDate(bookingWindowStart);
+      const end = parseLocalDate(bookingWindowEnd);
+
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+        return [] as Date[];
+      }
+
+      const days = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      return Array.from({ length: days }, (_, i) => addDays(start, i));
+    },
+    [bookingWindowStart, bookingWindowEnd],
   );
 
   const mergeSlotsWithConflicts = (date: string, incomingSlots: AppointmentSlot[], extraBlockedTimes: string[] = []) => {
@@ -82,15 +105,54 @@ const Booking = () => {
 
   const loadSlots = async (date: string, extraBlockedTimes: string[] = []) => {
     setSlotsLoading(true);
+    setSlotsError(null);
     try {
+      if (!isDateWithinWindow(date, bookingWindowStart, bookingWindowEnd)) {
+        setSlots([]);
+        setSelectedTime("");
+        setSlotsError("Data fora da janela de agendamento.");
+        return;
+      }
+
       const response = await getSlotsByDate(date);
       setSlots(mergeSlotsWithConflicts(date, response.slots, extraBlockedTimes));
       setSlotsMeta(response.meta || {});
+
+      const nextWindowStart = response.meta?.bookingWindowStart || bookingWindowStart;
+      const nextWindowEnd = response.meta?.bookingWindowEnd || bookingWindowEnd;
+      setBookingWindowStart(nextWindowStart);
+      setBookingWindowEnd(nextWindowEnd);
+
+      if (!isDateWithinWindow(date, nextWindowStart, nextWindowEnd)) {
+        setSelectedDate(nextWindowStart);
+        setSelectedTime("");
+        setSlots([]);
+      }
     } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        toast({
+          title: "Sessao expirada",
+          description: "Faça login novamente para continuar.",
+          variant: "destructive",
+        });
+        navigate("/login");
+        return;
+      }
+
+      if (error instanceof ApiClientError && error.status === 500) {
+        setSlotsError("Erro interno ao carregar horarios. Tente novamente.");
+      } else if (error instanceof ApiClientError && error.status === 400) {
+        setSlotsError(error.message || "Dados invalidos para buscar horarios.");
+      } else {
+        setSlotsError("Falha ao carregar horarios.");
+      }
+
       setSlots([]);
       toast({
         title: "Falha ao carregar horarios",
-        description: getFriendlyErrorMessage(error),
+        description: error instanceof ApiClientError && error.status === 500
+          ? "Erro interno do servidor. Use Tentar novamente."
+          : getFriendlyErrorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -108,11 +170,23 @@ const Booking = () => {
         setSelectedServiceKey("");
       }
     } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        toast({
+          title: "Sessao expirada",
+          description: "Faça login novamente para continuar.",
+          variant: "destructive",
+        });
+        navigate("/login");
+        return;
+      }
+
       setServices([]);
       setSelectedServiceKey("");
       toast({
         title: "Falha ao carregar servicos",
-        description: getFriendlyErrorMessage(error),
+        description: error instanceof ApiClientError && error.status === 500
+          ? "Erro interno do servidor. Tente novamente."
+          : getFriendlyErrorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -122,9 +196,15 @@ const Booking = () => {
 
   useEffect(() => {
     if (!selectedDate || !user) return;
+
+    if (!isDateWithinWindow(selectedDate, bookingWindowStart, bookingWindowEnd)) {
+      setSelectedDate(bookingWindowStart);
+      return;
+    }
+
     setSelectedTime("");
     loadSlots(selectedDate);
-  }, [selectedDate, user]);
+  }, [selectedDate, user, bookingWindowStart, bookingWindowEnd]);
 
   useEffect(() => {
     if (!user) return;
@@ -150,6 +230,15 @@ const Booking = () => {
   const handleBook = async () => {
     if (!selectedDate || !selectedTime) return;
 
+    if (!isDateWithinWindow(selectedDate, bookingWindowStart, bookingWindowEnd)) {
+      toast({
+        title: "Data fora da janela de agendamento",
+        description: `Escolha uma data entre ${bookingWindowStart} e ${bookingWindowEnd}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!selectedServiceKey) {
       toast({
         title: "Selecione um servico",
@@ -162,8 +251,8 @@ const Booking = () => {
     logBookingDebug("BOOK_CLICKED", {
       selectedDate,
       selectedTime,
-      weekStart: slotsMeta.weekStart,
-      weekEnd: slotsMeta.weekEnd,
+      bookingWindowStart,
+      bookingWindowEnd,
       timezone: slotsMeta.timezone,
     });
 
@@ -173,6 +262,22 @@ const Booking = () => {
       const mergedLatestSlots = mergeSlotsWithConflicts(selectedDate, latestSlots.slots);
       setSlots(mergedLatestSlots);
       setSlotsMeta(latestSlots.meta || {});
+
+      const nextWindowStart = latestSlots.meta?.bookingWindowStart || bookingWindowStart;
+      const nextWindowEnd = latestSlots.meta?.bookingWindowEnd || bookingWindowEnd;
+      setBookingWindowStart(nextWindowStart);
+      setBookingWindowEnd(nextWindowEnd);
+
+      if (!isDateWithinWindow(selectedDate, nextWindowStart, nextWindowEnd)) {
+        toast({
+          title: "Data fora da janela de agendamento",
+          description: `Escolha uma data entre ${nextWindowStart} e ${nextWindowEnd}.`,
+          variant: "destructive",
+        });
+        setSelectedDate(nextWindowStart);
+        setSelectedTime("");
+        return;
+      }
 
       logBookingDebug("PREFLIGHT_SLOTS", {
         selectedDate,
@@ -256,6 +361,16 @@ const Booking = () => {
         });
       }
 
+      if (error instanceof ApiClientError && error.status === 401) {
+        toast({
+          title: "Sessao expirada",
+          description: "Faça login novamente para continuar.",
+          variant: "destructive",
+        });
+        navigate("/login");
+        return;
+      }
+
       if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
         const isDbUniqueConflict =
           !!error.details && typeof error.details === "object" && (error.details as Record<string, unknown>).source === "db_unique_index";
@@ -295,6 +410,35 @@ const Booking = () => {
         return;
       }
 
+      if (error instanceof ApiClientError && error.status === 400) {
+        const rawMessage = (error.message || "").toLowerCase();
+        const isWindowValidation =
+          (error.code || "").toLowerCase().includes("window") ||
+          rawMessage.includes("janela") ||
+          rawMessage.includes("window");
+
+        const message =
+          isWindowValidation && bookingWindowStart && bookingWindowEnd
+            ? `Data fora da janela de agendamento. Escolha uma data entre ${bookingWindowStart} e ${bookingWindowEnd}.`
+            : error.message || "Dados invalidos para concluir o agendamento.";
+
+        toast({
+          title: "Nao foi possivel confirmar o agendamento",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (error instanceof ApiClientError && error.status === 500) {
+        toast({
+          title: "Erro interno",
+          description: "Nao foi possivel concluir agora. Tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Erro ao agendar",
         description: getFriendlyErrorMessage(error),
@@ -321,6 +465,9 @@ const Booking = () => {
           AGENDAR <span className="gold-text">HORARIO</span>
         </h1>
         <p className="text-muted-foreground mb-8">Escolha o dia e horario do seu corte</p>
+        <p className="text-sm text-muted-foreground mb-8">
+          Agendamentos disponiveis de {format(parseLocalDate(bookingWindowStart), "dd/MM")} a {format(parseLocalDate(bookingWindowEnd), "dd/MM")}. 
+        </p>
 
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-4">
@@ -389,8 +536,13 @@ const Booking = () => {
 
           {slotsLoading ? (
             <p className="text-muted-foreground">Carregando horarios...</p>
+          ) : slotsError ? (
+            <div className="glass rounded-lg p-5 text-center text-muted-foreground space-y-3">
+              <p>{slotsError}</p>
+              <Button variant="outline" onClick={() => loadSlots(selectedDate)}>Tentar novamente</Button>
+            </div>
           ) : slots.length === 0 ? (
-            <div className="glass rounded-lg p-5 text-center text-muted-foreground">Nenhum horario retornado para esta data.</div>
+            <div className="glass rounded-lg p-5 text-center text-muted-foreground">Sem horarios disponiveis para esta data.</div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
               {slots.map((slot) => {

@@ -135,6 +135,9 @@ export interface SlotsMeta {
   serverNow?: string;
   weekStart?: string;
   weekEnd?: string;
+  bookingWindowStart?: string;
+  bookingWindowEnd?: string;
+  retentionStart?: string;
 }
 
 export interface SlotsByDateResponse {
@@ -442,6 +445,9 @@ function normalizeSlotsMeta(raw: any): SlotsMeta {
     serverNow: raw?.server_now ?? raw?.serverNow ?? undefined,
     weekStart: raw?.week_start ?? raw?.weekStart ?? undefined,
     weekEnd: raw?.week_end ?? raw?.weekEnd ?? undefined,
+    bookingWindowStart: normalizeDateOnly(raw?.booking_window_start ?? raw?.bookingWindowStart ?? raw?.window_start ?? raw?.windowStart ?? "") || undefined,
+    bookingWindowEnd: normalizeDateOnly(raw?.booking_window_end ?? raw?.bookingWindowEnd ?? raw?.window_end ?? raw?.windowEnd ?? "") || undefined,
+    retentionStart: normalizeDateOnly(raw?.retention_start ?? raw?.retentionStart ?? "") || undefined,
   };
 }
 
