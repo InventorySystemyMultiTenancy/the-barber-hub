@@ -257,6 +257,11 @@ async function apiRequest<T>(path: string, init?: RequestInit, requiresAuth = tr
   let response: Response;
   try {
     const method = (init?.method || "GET").toUpperCase();
+    if (method === "GET") {
+      headers.set("Cache-Control", "no-cache, no-store, max-age=0");
+      headers.set("Pragma", "no-cache");
+    }
+
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers,
@@ -312,7 +317,7 @@ export async function me(): Promise<SessionUser> {
 }
 
 export async function getSlotsByDate(date: string): Promise<SlotsByDateResponse> {
-  const data = await apiRequest<any>(`/api/appointments/slots?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
+  const data = await apiRequest<any>(`/api/appointments/slots?date=${encodeURIComponent(date)}&_t=${Date.now()}`, { method: "GET" }, true);
   const slots = extractCollection(data, ["slots", "appointmentSlots", "items"]);
   const meta = normalizeSlotsMeta(data?.meta ?? data);
 

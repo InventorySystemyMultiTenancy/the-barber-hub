@@ -43,6 +43,7 @@ const Booking = () => {
   const [slotsMeta, setSlotsMeta] = useState<SlotsMeta>({});
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [conflictedTimesByDate, setConflictedTimesByDate] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -56,11 +57,25 @@ const Booking = () => {
     [],
   );
 
-  const loadSlots = async (date: string) => {
+  const mergeSlotsWithConflicts = (date: string, incomingSlots: AppointmentSlot[], extraBlockedTimes: string[] = []) => {
+    const blockedTimes = new Set([...(conflictedTimesByDate[date] || []), ...extraBlockedTimes]);
+
+    return incomingSlots.map((slot) => {
+      if (!blockedTimes.has(slot.time) || slot.status !== "disponivel") return slot;
+
+      return {
+        ...slot,
+        status: "agendado" as const,
+        reason: slot.reason || "Reservado (confirmado no banco)",
+      };
+    });
+  };
+
+  const loadSlots = async (date: string, extraBlockedTimes: string[] = []) => {
     setSlotsLoading(true);
     try {
       const response = await getSlotsByDate(date);
-      setSlots(response.slots);
+      setSlots(mergeSlotsWithConflicts(date, response.slots, extraBlockedTimes));
       setSlotsMeta(response.meta || {});
 
       if (response.meta?.weekStart && response.meta?.weekEnd && !inRange(date, response.meta.weekStart, response.meta.weekEnd)) {
@@ -112,17 +127,18 @@ const Booking = () => {
     setSubmitting(true);
     try {
       const latestSlots = await getSlotsByDate(selectedDate);
-      setSlots(latestSlots.slots);
+      const mergedLatestSlots = mergeSlotsWithConflicts(selectedDate, latestSlots.slots);
+      setSlots(mergedLatestSlots);
       setSlotsMeta(latestSlots.meta || {});
 
       logBookingDebug("PREFLIGHT_SLOTS", {
         selectedDate,
         selectedTime,
-        totalSlots: latestSlots.slots.length,
-        selectedSlot: latestSlots.slots.find((slot) => slot.time === selectedTime) || null,
+        totalSlots: mergedLatestSlots.length,
+        selectedSlot: mergedLatestSlots.find((slot) => slot.time === selectedTime) || null,
       });
 
-      const selectedSlot = latestSlots.slots.find((slot) => slot.time === selectedTime);
+      const selectedSlot = mergedLatestSlots.find((slot) => slot.time === selectedTime);
       if (!selectedSlot || selectedSlot.status !== "disponivel") {
         setSelectedTime("");
         toast({
@@ -167,11 +183,22 @@ const Booking = () => {
       }
 
       if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
-        setSelectedTime("");
-        await loadSlots(selectedDate);
-
         const isDbUniqueConflict =
           !!error.details && typeof error.details === "object" && (error.details as Record<string, unknown>).source === "db_unique_index";
+
+        if (isDbUniqueConflict) {
+          setConflictedTimesByDate((prev) => {
+            const current = prev[selectedDate] || [];
+            if (current.includes(selectedTime)) return prev;
+            return {
+              ...prev,
+              [selectedDate]: [...current, selectedTime],
+            };
+          });
+        }
+
+        setSelectedTime("");
+        await loadSlots(selectedDate, isDbUniqueConflict ? [selectedTime] : []);
 
         toast({
           title: "Horario atualizado",
