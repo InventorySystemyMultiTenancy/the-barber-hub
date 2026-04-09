@@ -9,6 +9,7 @@ import {
   Landmark,
   RotateCcw,
   Shield,
+  MessageCircle,
   Trash2,
   TrendingUp,
   Wallet,
@@ -36,6 +37,7 @@ import {
   type FixedExpense,
   type VariableExpense,
 } from "@/lib/api";
+import { normalizeWhatsAppPhone, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
 
 function formatMoney(value: number) {
@@ -284,6 +286,42 @@ const AdminDashboard = () => {
     }
   };
 
+  const sendWhatsappConfirmation = (appointment: Appointment) => {
+    const phone = normalizeWhatsAppPhone(appointment.phone);
+    if (!phone) {
+      toast({
+        title: "Telefone indisponivel",
+        description: "Esse cliente nao possui telefone valido para WhatsApp.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const message = [
+      `Olá, ${appointment.fullName || "cliente"}!`,
+      "Seu agendamento foi confirmado com sucesso.",
+      `Data: ${appointment.appointmentDate || "nao informada"}`,
+      `Hora: ${(appointment.appointmentTime || "").slice(0, 5) || "nao informada"}`,
+      `Serviço: ${toServiceLabel(appointment)}`,
+      "Aguardamos voce. Até breve!",
+    ].join("\n");
+
+    const opened = openWhatsAppMessage(message, phone);
+    if (!opened) {
+      toast({
+        title: "Nao foi possivel abrir o WhatsApp",
+        description: "Verifique se o navegador bloqueou pop-up e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "WhatsApp aberto",
+      description: "Mensagem de confirmacao pronta para envio.",
+    });
+  };
+
   const totals = useMemo(() => {
     const totalAgendado = appointments.filter((appointment) => appointment.status === "agendado").length;
     const totalPago = appointments.filter((appointment) => appointment.status === "pago").length;
@@ -501,7 +539,17 @@ const AdminDashboard = () => {
                             <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
                           </div>
-                          <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => sendWhatsappConfirmation(appointment)}
+                              className="h-7 px-2 gap-1 text-green-400 border-green-500/40 hover:bg-green-500/10"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" /> Confirmar via WhatsApp
+                            </Button>
+                          </div>
                           <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
                           <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
                           <p className="text-xs text-muted-foreground">

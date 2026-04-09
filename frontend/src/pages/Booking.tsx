@@ -17,6 +17,7 @@ import {
   type AppointmentSlot,
   type SlotsMeta,
 } from "@/lib/api";
+import { BUSINESS_WHATSAPP_NUMBER, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
 
 function parseLocalDate(date: string) {
@@ -240,6 +241,24 @@ const Booking = () => {
         title: "Agendamento confirmado!",
         description: `${summary.serviceLabel} • ${formatMoney(summary.servicePrice)} • ${summary.dateValue} às ${summary.timeValue.slice(0, 5)}`,
       });
+
+      const bookingWhatsAppMessage = [
+        `Olá! Meu nome é ${user?.fullName || "Cliente"}.`,
+        "Acabei de agendar um horário.",
+        `Data: ${summary.dateValue}`,
+        `Hora: ${summary.timeValue.slice(0, 5)}`,
+        `Serviço: ${summary.serviceLabel}`,
+      ].join("\n");
+
+      const openedWhatsApp = openWhatsAppMessage(bookingWhatsAppMessage, BUSINESS_WHATSAPP_NUMBER || undefined);
+      if (!openedWhatsApp) {
+        toast({
+          title: "Nao foi possivel abrir o WhatsApp automaticamente",
+          description: "Verifique se o navegador bloqueou pop-up e tente novamente.",
+          variant: "destructive",
+        });
+      }
+
       await loadSlots(selectedDate);
       navigate("/meus-agendamentos");
     } catch (error) {
