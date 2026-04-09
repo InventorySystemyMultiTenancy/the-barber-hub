@@ -256,6 +256,7 @@ export function getFriendlyErrorMessage(error: unknown) {
   if (error.code === "SLOT_DISABLED") return "Esse horario esta desabilitado.";
   if (error.code === "DAY_DISABLED") return "Esse dia esta indisponivel para atendimento.";
   if (error.code === "PAST_APPOINTMENT") return "Nao e permitido agendar horario passado no dia atual.";
+  if (error.code === "PAID_APPOINTMENT_CANNOT_CANCEL") return "Nao e permitido cancelar um agendamento pago.";
   if (error.code === "VALIDATION_ERROR") return "Dados invalidos para esta operacao.";
   if (error.code === "INVALID_SERVICE_TYPE") return "Servico invalido. Recarregue e selecione novamente.";
 

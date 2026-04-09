@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar, Trash2 } from "lucide-react";
+import { Calendar, MessageCircle, Trash2 } from "lucide-react";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { cancelMyAppointment, getFriendlyErrorMessage, getMyAppointments, type Appointment } from "@/lib/api";
+import { BUSINESS_WHATSAPP_NUMBER, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
 
 function formatMoney(value: number) {
@@ -59,6 +60,20 @@ function formatAppointmentTime(value: string) {
   return value.slice(0, 5);
 }
 
+function buildAppointmentWhatsAppMessage(appointment: Appointment, customerName?: string, mode: "scheduled" | "canceled" = "scheduled") {
+  const serviceLabel = appointment.serviceLabel || "Servico";
+  const customerLabel = customerName || appointment.fullName || "Cliente";
+  const actionLabel = mode === "canceled" ? "cancelou o agendamento" : "agendou um horario";
+
+  return [
+    `O cliente ${customerLabel} ${actionLabel}.`,
+    `Data: ${formatAppointmentDate(appointment.appointmentDate)}`,
+    `Hora: ${formatAppointmentTime(appointment.appointmentTime)}`,
+    `Servico: ${serviceLabel}`,
+    `Valor: ${formatMoney(appointment.price || 0)}`,
+  ].join("\n");
+}
+
 const MyAppointments = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -92,10 +107,30 @@ const MyAppointments = () => {
     }
   }, [user]);
 
-  const handleCancel = async (id: string) => {
+  const handleSendToWhatsApp = (appointment: Appointment, mode: "scheduled" | "canceled" = "scheduled") => {
+    const message = buildAppointmentWhatsAppMessage(appointment, user?.fullName, mode);
+    const opened = openWhatsAppMessage(message, BUSINESS_WHATSAPP_NUMBER);
+
+    if (!opened) {
+      toast({
+        title: "Nao foi possivel abrir o WhatsApp",
+        description: "Verifique se o navegador bloqueou a abertura da nova aba.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleCancel = async (appointment: Appointment) => {
+    const confirmed = window.confirm("Deseja cancelar este agendamento?");
+    if (!confirmed) return;
+
     try {
-      await cancelMyAppointment(id);
+      await cancelMyAppointment(appointment.id);
       toast({ title: "Agendamento cancelado" });
+      handleSendToWhatsApp(appointment, "canceled");
       await loadAppointments();
     } catch (error) {
       toast({
@@ -161,6 +196,9 @@ const MyAppointments = () => {
                       {formatAppointmentDate(appointment.appointmentDate)}
                     </p>
                     <p className="text-primary font-heading text-lg">{formatAppointmentTime(appointment.appointmentTime)}</p>
+                    {appointment.serviceLabel && (
+                      <p className="text-sm text-foreground/80 mt-1">{appointment.serviceLabel}</p>
+                    )}
                     <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${status.className}`}>
                       {status.label}
                     </span>
@@ -180,16 +218,28 @@ const MyAppointments = () => {
                       </div>
                     )}
                   </div>
-                  {appointment.status !== "pago" && (
+                  <div className="flex flex-col sm:flex-row gap-2 self-end sm:self-auto">
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleCancel(appointment.id)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10 self-end sm:self-auto"
+                      onClick={() => handleSendToWhatsApp(appointment, "scheduled")}
+                      className="gap-2"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <MessageCircle className="h-4 w-4" />
+                      Enviar para WhatsApp
                     </Button>
-                  )}
+                    {appointment.status !== "pago" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCancel(appointment)}
+                        className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Cancelar
+                      </Button>
+                    )}
+                  </div>
                 </div>
               );
             })}
