@@ -25,7 +25,7 @@ const Index = () => {
           <img
             src={logoImage}
             alt="Logo Chincoa Cortes"
-            className="h-20 w-20 md:h-24 md:w-24 object-contain mx-auto mb-4"
+            className="h-28 w-28 md:h-36 md:w-36 object-contain mx-auto mb-4"
           />
 
           <div className="inline-flex items-center gap-2 mb-6 px-4 py-2 rounded-full border border-primary/30 bg-primary/10">
