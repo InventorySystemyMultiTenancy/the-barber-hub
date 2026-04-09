@@ -535,9 +535,14 @@ const AdminDashboard = () => {
                     <div key={appointment.id} className="glass rounded-lg p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
+                            {appointment.discount?.applied && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                                ANIVERSARIO {appointment.discount.discountPercent ? `${appointment.discount.discountPercent}%` : "50%"}
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
@@ -545,24 +550,38 @@ const AdminDashboard = () => {
                               size="sm"
                               variant="outline"
                               onClick={() => sendWhatsappConfirmation(appointment)}
-                              className="h-7 px-2 gap-1 text-green-400 border-green-500/40 hover:bg-green-500/10"
+                              className="h-8 px-2 gap-1 text-green-400 border-green-500/40 hover:bg-green-500/10 w-full sm:w-auto"
                             >
                               <MessageCircle className="h-3.5 w-3.5" /> Confirmar via WhatsApp
                             </Button>
                           </div>
                           <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
                           <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
+                          {appointment.discount?.applied && (
+                            <div className="mt-1 rounded-md border border-primary/40 bg-primary/10 p-2">
+                              <p className="text-xs font-semibold text-primary">Desconto de aniversario aplicado</p>
+                              {appointment.discount.message && (
+                                <p className="text-xs text-muted-foreground">{appointment.discount.message}</p>
+                              )}
+                              <p className="text-xs text-foreground">
+                                Original: {formatMoney(appointment.discount.basePrice ?? appointment.price ?? 0)}
+                              </p>
+                              <p className="text-xs text-foreground">
+                                Final: {formatMoney(appointment.discount.finalPrice ?? appointment.price ?? 0)}
+                              </p>
+                            </div>
+                          )}
                           <p className="text-xs text-muted-foreground">
                             {appointment.phone || "-"} · {appointment.email || "-"}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                           {appointment.status === "agendado" && (
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => updateStatus(appointment.id, "pago")}
-                              className="text-green-400 border-green-400/30 hover:bg-green-400/10 gap-1"
+                              className="text-green-400 border-green-400/30 hover:bg-green-400/10 gap-1 w-full sm:w-auto justify-center"
                             >
                               <CheckCircle className="h-3 w-3" /> Pago
                             </Button>
@@ -573,7 +592,7 @@ const AdminDashboard = () => {
                               size="sm"
                               variant="outline"
                               onClick={() => updateStatus(appointment.id, "disponivel")}
-                              className="gap-1"
+                              className="gap-1 w-full sm:w-auto justify-center"
                             >
                               <RotateCcw className="h-3 w-3" /> Liberar horario
                             </Button>
@@ -583,7 +602,7 @@ const AdminDashboard = () => {
                             size="sm"
                             variant="outline"
                             onClick={() => removeAppointment(appointment.id)}
-                            className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
+                            className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1 w-full sm:w-auto justify-center"
                           >
                             <Trash2 className="h-3 w-3" /> Excluir agendamento
                           </Button>

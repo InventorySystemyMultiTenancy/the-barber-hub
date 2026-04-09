@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { addDays, format, startOfToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarDays, CheckCircle2, Clock } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock, Gift } from "lucide-react";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,7 +53,7 @@ function logBookingDebug(step: string, payload: Record<string, unknown>) {
 }
 
 const Booking = () => {
-  const { user, loading: authLoading } = useAuth();
+  const { user, birthdayDiscount, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const defaultWindow = getDefaultBookingWindow();
   const [selectedDate, setSelectedDate] = useState<string>(defaultWindow.start);
@@ -220,6 +220,10 @@ const Booking = () => {
   }, [user]);
 
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
+  const hasBirthdayDiscountForSelectedService =
+    Boolean(birthdayDiscount.active) &&
+    Boolean(selectedServiceKey) &&
+    (!birthdayDiscount.serviceType || birthdayDiscount.serviceType === selectedServiceKey);
 
   const getAppointmentSummary = (appointment: Appointment) => {
     const serviceLabel = appointment.serviceLabel || selectedService?.label || selectedServiceKey || "Servico";
@@ -495,12 +499,25 @@ const Booking = () => {
           Agendamentos disponiveis de {format(parseLocalDate(bookingWindowStart), "dd/MM")} a {format(parseLocalDate(bookingWindowEnd), "dd/MM")}. 
         </p>
 
+        {birthdayDiscount.active && (
+          <div className="mb-6 glass rounded-lg border border-primary/40 bg-primary/10 p-4">
+            <div className="inline-flex items-center gap-2 text-primary font-semibold">
+              <Gift className="h-4 w-4" /> Promocao de aniversario ativa
+            </div>
+            <p className="text-sm text-foreground mt-1">{birthdayDiscount.message || "Voce tem desconto de aniversario no servico elegivel."}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Desconto: {birthdayDiscount.discountPercent ? `${birthdayDiscount.discountPercent}%` : "50%"}
+              {birthdayDiscount.serviceType ? ` no servico ${birthdayDiscount.serviceType}` : ""}
+            </p>
+          </div>
+        )}
+
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-4">
             <CalendarDays className="h-5 w-5 text-primary" />
             <h2 className="font-heading text-lg font-semibold">Escolha o dia</h2>
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {availableDates.map((d) => {
               const dateStr = format(d, "yyyy-MM-dd");
               const isSelected = selectedDate === dateStr;
@@ -608,8 +625,8 @@ const Booking = () => {
         </div>
 
         {selectedDate && selectedTime && (
-          <div className="animate-fade-in glass rounded-lg p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="animate-fade-in glass rounded-lg p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
               <CheckCircle2 className="h-6 w-6 text-primary" />
               <div>
                 <p className="font-heading font-semibold">
@@ -619,6 +636,12 @@ const Booking = () => {
                 {selectedService && (
                   <p className="text-sm text-muted-foreground">
                     {selectedService.label} • {formatMoney(selectedService.price)}
+                  </p>
+                )}
+
+                {selectedService && hasBirthdayDiscountForSelectedService && (
+                  <p className="text-xs text-primary mt-1">
+                    Desconto de aniversario sera aplicado neste servico.
                   </p>
                 )}
 
@@ -638,7 +661,7 @@ const Booking = () => {
                 )}
               </div>
             </div>
-            <Button onClick={handleBook} disabled={submitting || !selectedServiceKey} className="font-heading">
+            <Button onClick={handleBook} disabled={submitting || !selectedServiceKey} className="font-heading w-full sm:w-auto">
               {submitting ? "Agendando..." : "CONFIRMAR AGENDAMENTO"}
             </Button>
           </div>

@@ -9,6 +9,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cancelMyAppointment, getFriendlyErrorMessage, getMyAppointments, type Appointment } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value || 0);
+}
+
 function parseLocalDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (match) {
@@ -124,8 +131,8 @@ const MyAppointments = () => {
             {appointments.map((appointment) => {
               const status = statusLabel(appointment.status);
               return (
-                <div key={appointment.id} className="glass rounded-lg p-5 flex items-center justify-between">
-                  <div>
+                <div key={appointment.id} className="glass rounded-lg p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-heading font-semibold">
                       {formatAppointmentDate(appointment.appointmentDate)}
                     </p>
@@ -133,13 +140,28 @@ const MyAppointments = () => {
                     <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${status.className}`}>
                       {status.label}
                     </span>
+                    <p className="text-xs text-muted-foreground mt-2">Valor: {formatMoney(appointment.price || 0)}</p>
+                    {appointment.discount?.applied && (
+                      <div className="mt-2 rounded-md border border-primary/40 bg-primary/10 p-2">
+                        <p className="text-xs font-semibold text-primary">Desconto de aniversario aplicado</p>
+                        {appointment.discount.message && (
+                          <p className="text-xs text-muted-foreground mt-1">{appointment.discount.message}</p>
+                        )}
+                        <p className="text-xs text-foreground mt-1">
+                          Original: {formatMoney(appointment.discount.basePrice ?? appointment.price ?? 0)}
+                        </p>
+                        <p className="text-xs text-foreground">
+                          Final: {formatMoney(appointment.discount.finalPrice ?? appointment.price ?? 0)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   {appointment.status !== "pago" && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => handleCancel(appointment.id)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 self-end sm:self-auto"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
