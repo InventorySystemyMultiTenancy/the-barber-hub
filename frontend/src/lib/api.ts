@@ -59,10 +59,18 @@ export interface Appointment {
   appointmentTime: string;
   status: AppointmentStatus;
   price: number;
+  serviceType?: string;
+  serviceLabel?: string;
   userId?: string;
   fullName?: string;
   email?: string;
   phone?: string;
+}
+
+export interface AppointmentService {
+  key: string;
+  label: string;
+  price: number;
 }
 
 export interface AppointmentSlot {
@@ -141,6 +149,7 @@ export function getFriendlyErrorMessage(error: unknown) {
   if (error.code === "DAY_DISABLED") return "Esse dia esta indisponivel para atendimento.";
   if (error.code === "PAST_APPOINTMENT") return "Nao e permitido agendar horario passado no dia atual.";
   if (error.code === "VALIDATION_ERROR") return "Dados invalidos para esta operacao.";
+  if (error.code === "INVALID_SERVICE_TYPE") return "Servico invalido. Recarregue e selecione novamente.";
 
   return error.message || "Erro inesperado ao comunicar com o backend.";
 }
@@ -190,10 +199,20 @@ function normalizeAppointment(raw: any): Appointment {
     appointmentTime: normalizeTime(String(raw.appointment_time ?? raw.appointmentTime ?? "")),
     status: (raw.status ?? "disponivel") as AppointmentStatus,
     price: Number(raw.price ?? 45),
+    serviceType: raw.service_type ?? raw.serviceType ?? undefined,
+    serviceLabel: raw.service_label ?? raw.serviceLabel ?? undefined,
     userId: raw.user_id ?? raw.userId ?? undefined,
     fullName: raw.full_name ?? raw.fullName ?? raw.user?.full_name ?? raw.user?.fullName ?? undefined,
     email: raw.email ?? raw.user?.email ?? undefined,
     phone: raw.phone ?? raw.user?.phone ?? undefined,
+  };
+}
+
+function normalizeAppointmentService(raw: any): AppointmentService {
+  return {
+    key: String(raw.key ?? raw.service_type ?? raw.serviceType ?? ""),
+    label: String(raw.label ?? raw.service_label ?? raw.serviceLabel ?? "Servico"),
+    price: Number(raw.price ?? 0),
   };
 }
 
@@ -347,28 +366,42 @@ export async function getSlotsByDate(date: string): Promise<SlotsByDateResponse>
   };
 }
 
+export async function getAppointmentServices(): Promise<AppointmentService[]> {
+  const data = await apiRequest<any>(`/api/appointments/services?_t=${Date.now()}`, { method: "GET" }, true);
+  const services = extractCollection(data, ["services", "items"]);
+
+  return services
+    .map(normalizeAppointmentService)
+    .filter((service) => service.key.length > 0 && service.label.length > 0);
+}
+
 export async function getMyAppointments(): Promise<Appointment[]> {
   const data = await apiRequest<any>("/api/appointments/me", { method: "GET" }, true);
   const appointments = extractCollection(data, ["appointments", "items"]);
   return appointments.map(normalizeAppointment);
 }
 
-export async function createAppointment(input: { date: string; time: string }) {
+export async function createAppointment(input: { date: string; time: string; serviceType: string }): Promise<Appointment> {
   const time = normalizeTime(input.time);
+  const serviceType = String(input.serviceType || "").trim();
 
-  await apiRequest<unknown>(
+  const data = await apiRequest<any>(
     "/api/appointments",
     {
       method: "POST",
       body: JSON.stringify({
         appointment_date: input.date,
         appointment_time: time,
+        service_type: serviceType,
         appointmentDate: input.date,
         appointmentTime: time,
+        serviceType,
       }),
     },
     true,
   );
+
+  return normalizeAppointment(data?.appointment ?? data);
 }
 
 export async function cancelMyAppointment(id: string) {
