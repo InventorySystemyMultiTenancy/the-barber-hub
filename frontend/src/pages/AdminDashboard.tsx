@@ -15,6 +15,23 @@ import {
 } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value || 0);
+}
+
+function toServiceLabel(appointment: Appointment) {
+  if (appointment.serviceLabel) return appointment.serviceLabel;
+  if (!appointment.serviceType) return "Servico nao informado";
+
+  return appointment.serviceType
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 const AdminDashboard = () => {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -52,6 +69,11 @@ const AdminDashboard = () => {
   }, [isAdmin, filterDate]);
 
   const updateStatus = async (id: string, status: AppointmentStatus) => {
+    if (status === "disponivel") {
+      const confirmed = window.confirm("Deseja liberar este horario e deixá-lo disponivel novamente?");
+      if (!confirmed) return;
+    }
+
     try {
       await updateAdminAppointmentStatus(id, status);
       toast({ title: `Status atualizado para ${status}` });
@@ -66,6 +88,9 @@ const AdminDashboard = () => {
   };
 
   const removeAppointment = async (id: string) => {
+    const confirmed = window.confirm("Deseja excluir este agendamento? Essa acao nao pode ser desfeita.");
+    if (!confirmed) return;
+
     try {
       await deleteAdminAppointment(id);
       toast({ title: "Agendamento removido" });
@@ -147,6 +172,7 @@ const AdminDashboard = () => {
           </div>
         ) : (
           <div className="space-y-3">
+            <h2 className="font-heading text-lg font-semibold">Horarios de clientes</h2>
             {appointments.map((appointment) => {
               const statusClass =
                 appointment.status === "pago"
@@ -163,7 +189,9 @@ const AdminDashboard = () => {
                         <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
                       </div>
-                      <p className="text-sm text-foreground">{appointment.fullName || "Sem nome"}</p>
+                      <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
+                      <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
+                      <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
                       <p className="text-xs text-muted-foreground">
                         {appointment.phone || "-"} · {appointment.email || "-"}
                       </p>
@@ -187,17 +215,17 @@ const AdminDashboard = () => {
                           onClick={() => updateStatus(appointment.id, "disponivel")}
                           className="gap-1"
                         >
-                          <RotateCcw className="h-3 w-3" /> Liberar
+                          <RotateCcw className="h-3 w-3" /> Liberar horario
                         </Button>
                       )}
 
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="outline"
                         onClick={() => removeAppointment(appointment.id)}
-                        className="text-destructive hover:bg-destructive/10"
+                        className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3" /> Excluir agendamento
                       </Button>
                     </div>
                   </div>

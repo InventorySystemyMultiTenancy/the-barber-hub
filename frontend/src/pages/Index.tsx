@@ -54,9 +54,9 @@ const Index = () => {
 
           <div className="grid md:grid-cols-3 gap-6">
             {[
-              { icon: Scissors, title: "Corte Masculino", desc: "Corte personalizado com técnicas modernas", price: "R$ 45" },
+              { icon: Scissors, title: "Corte Masculino", desc: "Corte personalizado com técnicas modernas", price: "R$ 50" },
               { icon: Clock, title: "Barba", desc: "Modelagem e acabamento profissional", price: "R$ 30" },
-              { icon: CalendarDays, title: "Combo Completo", desc: "Corte + barba + acabamento premium", price: "R$ 65" },
+              { icon: CalendarDays, title: "Combo Completo", desc: "Corte + barba + sobrancelha", price: "R$ 85" },
             ].map((service, i) => (
               <div
                 key={service.title}
