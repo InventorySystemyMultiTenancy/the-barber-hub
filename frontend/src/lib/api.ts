@@ -293,6 +293,8 @@ function normalizeFinancialReport(raw: any): FinancialReport {
 
   const paidAppointmentsCount = Number(
     pickFirstDefined(source, [
+      "revenue.paid_appointments_count",
+      "revenue.paidAppointmentsCount",
       "paid_appointments_count",
       "paidAppointmentsCount",
       "paid_count",
@@ -307,6 +309,10 @@ function normalizeFinancialReport(raw: any): FinancialReport {
 
   const paidAppointmentsRevenue = Number(
     pickFirstDefined(source, [
+      "revenue.paid_total",
+      "revenue.paidTotal",
+      "revenue.gross_revenue",
+      "revenue.grossRevenue",
       "paid_appointments_revenue",
       "paidAppointmentsRevenue",
       "gross_revenue",
@@ -321,6 +327,8 @@ function normalizeFinancialReport(raw: any): FinancialReport {
 
   const fixedExpensesTotal = Number(
     pickFirstDefined(source, [
+      "expenses.fixed_total",
+      "expenses.fixedTotal",
       "fixed_expenses_total",
       "fixedExpensesTotal",
       "fixed_expenses",
@@ -332,6 +340,8 @@ function normalizeFinancialReport(raw: any): FinancialReport {
 
   const variableExpensesTotal = Number(
     pickFirstDefined(source, [
+      "expenses.variable_total",
+      "expenses.variableTotal",
       "variable_expenses_total",
       "variableExpensesTotal",
       "variable_expenses",
@@ -343,6 +353,9 @@ function normalizeFinancialReport(raw: any): FinancialReport {
 
   const totalExpenses = Number(
     pickFirstDefined(source, [
+      "expenses.total",
+      "expenses.total_expenses",
+      "expenses.totalExpenses",
       "total_expenses",
       "totalExpenses",
       "expenses_total",
@@ -648,7 +661,7 @@ export async function createAdminFixedExpense(payload: CreateFixedExpensePayload
     true,
   );
 
-  return normalizeFixedExpense(data?.expense ?? data);
+  return normalizeFixedExpense(data?.fixed_expense ?? data?.expense ?? data);
 }
 
 export async function getAdminVariableExpenses(startDate: string, endDate: string): Promise<VariableExpense[]> {
@@ -668,5 +681,5 @@ export async function createAdminVariableExpense(payload: CreateVariableExpenseP
     true,
   );
 
-  return normalizeVariableExpense(data?.expense ?? data);
+  return normalizeVariableExpense(data?.variable_expense ?? data?.expense ?? data);
 }
