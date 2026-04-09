@@ -273,7 +273,14 @@ const Booking = () => {
               {slots.map((slot) => {
                 const disabled = slot.status !== "disponivel";
                 const isSelected = selectedTime === slot.time;
-                const statusLabel = slot.status === "pago" ? "Pago" : slot.status === "agendado" ? "Agendado" : "Disponivel";
+                const statusLabel =
+                  slot.status === "pago"
+                    ? "Pago"
+                    : slot.status === "agendado"
+                      ? "Agendado"
+                      : slot.status === "desabilitado"
+                        ? "Desabilitado"
+                        : "Disponivel";
                 const reasonLabel = slot.status === "desabilitado" && slot.reason ? slot.reason : null;
 
                 return (
