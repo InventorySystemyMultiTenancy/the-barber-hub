@@ -10,12 +10,12 @@ const Header = () => {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 glass">
       <div className="container mx-auto flex items-center justify-between h-16 px-4">
-        <Link to="/" className="flex items-center gap-2">
-          <img src={logoImage} alt="Logo Chincoa Cortes" className="h-12 w-12 object-contain" />
-          <span className="font-heading text-xl font-bold gold-text">CHINCOA CORTES</span>
+        <Link to="/" className="flex items-center gap-1.5">
+          <img src={logoImage} alt="Logo Chincoa Cortes" className="h-14 w-14 object-contain" />
+          <span className="hidden md:inline font-heading text-lg lg:text-xl font-bold gold-text">CHINCOA CORTES</span>
         </Link>
 
-        <nav className="flex items-center gap-3">
+        <nav className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
               <Link to="/agendar">

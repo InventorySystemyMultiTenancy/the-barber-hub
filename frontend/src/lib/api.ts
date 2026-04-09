@@ -265,39 +265,150 @@ function normalizeAppointmentService(raw: any): AppointmentService {
   };
 }
 
+function pickFirstDefined(raw: any, paths: string[]) {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  for (const path of paths) {
+    const segments = path.split(".");
+    let current: any = raw;
+
+    for (const segment of segments) {
+      if (current === null || current === undefined || typeof current !== "object") {
+        current = undefined;
+        break;
+      }
+      current = current[segment];
+    }
+
+    if (current !== undefined && current !== null) {
+      return current;
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeFinancialReport(raw: any): FinancialReport {
+  const source = (pickFirstDefined(raw, ["summary", "financial", "report"]) as any) ?? raw;
+
+  const paidAppointmentsCount = Number(
+    pickFirstDefined(source, [
+      "paid_appointments_count",
+      "paidAppointmentsCount",
+      "paid_count",
+      "paidCount",
+      "appointments_paid_count",
+      "total_paid_appointments",
+      "totalPaidAppointments",
+      "payments_count",
+      "paymentsCount",
+    ]) ?? 0,
+  );
+
+  const paidAppointmentsRevenue = Number(
+    pickFirstDefined(source, [
+      "paid_appointments_revenue",
+      "paidAppointmentsRevenue",
+      "gross_revenue",
+      "grossRevenue",
+      "revenue",
+      "total_revenue",
+      "totalRevenue",
+      "paid_total",
+      "paidTotal",
+    ]) ?? 0,
+  );
+
+  const fixedExpensesTotal = Number(
+    pickFirstDefined(source, [
+      "fixed_expenses_total",
+      "fixedExpensesTotal",
+      "fixed_expenses",
+      "fixedExpenses",
+      "fixed_total",
+      "fixedTotal",
+    ]) ?? 0,
+  );
+
+  const variableExpensesTotal = Number(
+    pickFirstDefined(source, [
+      "variable_expenses_total",
+      "variableExpensesTotal",
+      "variable_expenses",
+      "variableExpenses",
+      "variable_total",
+      "variableTotal",
+    ]) ?? 0,
+  );
+
+  const totalExpenses = Number(
+    pickFirstDefined(source, [
+      "total_expenses",
+      "totalExpenses",
+      "expenses_total",
+      "expensesTotal",
+      "costs_total",
+      "costsTotal",
+    ]) ?? 0,
+  );
+
+  const netProfit = Number(
+    pickFirstDefined(source, ["net_profit", "netProfit", "lucro_liquido", "lucroLiquido", "net"]) ?? 0,
+  );
+
   return {
     period: {
-      startDate: normalizeDateOnly(raw?.period?.start_date ?? raw?.period?.startDate ?? raw?.start_date ?? raw?.startDate ?? ""),
-      endDate: normalizeDateOnly(raw?.period?.end_date ?? raw?.period?.endDate ?? raw?.end_date ?? raw?.endDate ?? ""),
+      startDate: normalizeDateOnly(
+        pickFirstDefined(source, [
+          "period.start_date",
+          "period.startDate",
+          "start_date",
+          "startDate",
+          "range.start",
+        ]) ?? "",
+      ),
+      endDate: normalizeDateOnly(
+        pickFirstDefined(source, ["period.end_date", "period.endDate", "end_date", "endDate", "range.end"]) ?? "",
+      ),
     },
-    paidAppointmentsCount: Number(raw?.paid_appointments_count ?? raw?.paidAppointmentsCount ?? 0),
-    paidAppointmentsRevenue: Number(raw?.paid_appointments_revenue ?? raw?.paidAppointmentsRevenue ?? 0),
-    fixedExpensesTotal: Number(raw?.fixed_expenses_total ?? raw?.fixedExpensesTotal ?? 0),
-    variableExpensesTotal: Number(raw?.variable_expenses_total ?? raw?.variableExpensesTotal ?? 0),
-    totalExpenses: Number(raw?.total_expenses ?? raw?.totalExpenses ?? 0),
-    netProfit: Number(raw?.net_profit ?? raw?.netProfit ?? 0),
+    paidAppointmentsCount,
+    paidAppointmentsRevenue,
+    fixedExpensesTotal,
+    variableExpensesTotal,
+    totalExpenses,
+    netProfit,
   };
 }
 
 function normalizeFixedExpense(raw: any): FixedExpense {
+  const title = String(raw.title ?? raw.name ?? raw.description ?? "");
+  const amount = Number(raw.amount ?? raw.value ?? 0);
+  const startsOn = normalizeDateOnly(raw.starts_on ?? raw.startsOn ?? raw.start_date ?? raw.startDate ?? "");
+  const endsOn = normalizeDateOnly(raw.ends_on ?? raw.endsOn ?? raw.end_date ?? raw.endDate ?? "") || undefined;
+  const fallbackId = `${title || "expense"}-${startsOn || "no-date"}-${amount}`;
+
   return {
-    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? ""),
-    title: String(raw.title ?? ""),
-    amount: Number(raw.amount ?? 0),
-    startsOn: normalizeDateOnly(raw.starts_on ?? raw.startsOn ?? ""),
-    endsOn: normalizeDateOnly(raw.ends_on ?? raw.endsOn ?? "") || undefined,
+    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? raw.fixed_expense_id ?? raw.fixedExpenseId ?? fallbackId),
+    title,
+    amount,
+    startsOn,
+    endsOn,
     isActive: Boolean(raw.is_active ?? raw.isActive ?? true),
     notes: raw.notes ? String(raw.notes) : undefined,
   };
 }
 
 function normalizeVariableExpense(raw: any): VariableExpense {
+  const title = String(raw.title ?? raw.name ?? raw.description ?? "");
+  const amount = Number(raw.amount ?? raw.value ?? 0);
+  const expenseDate = normalizeDateOnly(raw.expense_date ?? raw.expenseDate ?? raw.date ?? "");
+  const fallbackId = `${title || "expense"}-${expenseDate || "no-date"}-${amount}`;
+
   return {
-    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? ""),
-    title: String(raw.title ?? ""),
-    amount: Number(raw.amount ?? 0),
-    expenseDate: normalizeDateOnly(raw.expense_date ?? raw.expenseDate ?? ""),
+    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? raw.variable_expense_id ?? raw.variableExpenseId ?? fallbackId),
+    title,
+    amount,
+    expenseDate,
     notes: raw.notes ? String(raw.notes) : undefined,
   };
 }
@@ -518,13 +629,13 @@ export async function deleteAdminAppointment(id: string) {
 export async function getAdminFinancialReport(startDate: string, endDate: string): Promise<FinancialReport> {
   const query = new URLSearchParams({ startDate, endDate }).toString();
   const data = await apiRequest<any>(`/api/admin/reports/financial?${query}`, { method: "GET" }, true);
-  return normalizeFinancialReport(data?.report ?? data);
+  return normalizeFinancialReport(data?.report ?? data?.summary ?? data?.financial ?? data);
 }
 
 export async function getAdminFixedExpenses(): Promise<FixedExpense[]> {
   const data = await apiRequest<any>("/api/admin/expenses/fixed", { method: "GET" }, true);
-  const expenses = extractCollection(data, ["fixedExpenses", "expenses", "items"]);
-  return expenses.map(normalizeFixedExpense).filter((expense) => expense.id.length > 0);
+  const expenses = extractCollection(data, ["fixedExpenses", "fixed_expenses", "expenses", "items", "rows"]);
+  return expenses.map(normalizeFixedExpense).filter((expense) => expense.title.length > 0 || expense.amount > 0);
 }
 
 export async function createAdminFixedExpense(payload: CreateFixedExpensePayload): Promise<FixedExpense> {
@@ -543,8 +654,8 @@ export async function createAdminFixedExpense(payload: CreateFixedExpensePayload
 export async function getAdminVariableExpenses(startDate: string, endDate: string): Promise<VariableExpense[]> {
   const query = new URLSearchParams({ startDate, endDate }).toString();
   const data = await apiRequest<any>(`/api/admin/expenses/variable?${query}`, { method: "GET" }, true);
-  const expenses = extractCollection(data, ["variableExpenses", "expenses", "items"]);
-  return expenses.map(normalizeVariableExpense).filter((expense) => expense.id.length > 0);
+  const expenses = extractCollection(data, ["variableExpenses", "variable_expenses", "expenses", "items", "rows"]);
+  return expenses.map(normalizeVariableExpense).filter((expense) => expense.title.length > 0 || expense.amount > 0);
 }
 
 export async function createAdminVariableExpense(payload: CreateVariableExpensePayload): Promise<VariableExpense> {
