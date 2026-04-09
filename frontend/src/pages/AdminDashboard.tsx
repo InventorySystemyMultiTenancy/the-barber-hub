@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
+  getAppointmentServices,
   createAdminFixedExpense,
   createAdminVariableExpense,
   deleteAdminAppointment,
@@ -87,6 +88,22 @@ function hasBirthdayDiscountInferred(appointment: Appointment) {
   return isBirthdayOnAppointmentDate(appointment.birthDate, appointment.appointmentDate) && service === "corte";
 }
 
+function findBaseServicePrice(serviceType: string | undefined, servicesPriceMap: Record<string, number>) {
+  const normalizedType = normalizeServiceToken(serviceType);
+  if (!normalizedType) return undefined;
+
+  const direct = servicesPriceMap[normalizedType];
+  if (typeof direct === "number") return direct;
+
+  for (const [key, price] of Object.entries(servicesPriceMap)) {
+    if (normalizedType === key || normalizedType.includes(key) || key.includes(normalizedType)) {
+      return price;
+    }
+  }
+
+  return undefined;
+}
+
 function getCurrentPeriod() {
   const now = new Date();
   return {
@@ -120,6 +137,7 @@ const AdminDashboard = () => {
 
   const [activeTab, setActiveTab] = useState("agenda");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [servicesPriceMap, setServicesPriceMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
@@ -212,6 +230,24 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadServicesCatalog = async () => {
+    try {
+      const services = await getAppointmentServices();
+      const map: Record<string, number> = {};
+
+      services.forEach((service) => {
+        const key = normalizeServiceToken(service.key);
+        if (key) {
+          map[key] = Number(service.price || 0);
+        }
+      });
+
+      setServicesPriceMap(map);
+    } catch {
+      setServicesPriceMap({});
+    }
+  };
+
   const loadFinancialSummary = async (startDate: string, endDate: string) => {
     setFinancialLoading(true);
     setFinancialError(null);
@@ -275,6 +311,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     if (isAdmin) {
+      loadServicesCatalog();
       loadAppointments();
     }
   }, [isAdmin, filterDate]);
@@ -571,15 +608,27 @@ const AdminDashboard = () => {
                         ? "bg-primary/20 text-primary"
                         : "bg-muted text-muted-foreground";
                   const birthdayDiscountInferred = !appointment.discount?.applied && hasBirthdayDiscountInferred(appointment);
-                  const shouldShowBirthdayBadge = Boolean(appointment.discount?.applied || birthdayDiscountInferred);
-                  const badgePercent = appointment.discount?.discountPercent || (birthdayDiscountInferred ? 50 : undefined);
+                  const baseServicePrice = findBaseServicePrice(appointment.serviceType, servicesPriceMap);
+                  const isHalfPriceInferred =
+                    !appointment.discount?.applied &&
+                    baseServicePrice !== undefined &&
+                    baseServicePrice > 0 &&
+                    Math.abs((appointment.price ?? 0) - baseServicePrice * 0.5) < 0.01;
+                  const shouldShowBirthdayBadge = Boolean(appointment.discount?.applied || birthdayDiscountInferred || isHalfPriceInferred);
+                  const badgePercent = appointment.discount?.discountPercent || ((birthdayDiscountInferred || isHalfPriceInferred) ? 50 : undefined);
                   const prices = getDiscountPriceDetails({
                     base: appointment.discount?.basePrice,
                     final: appointment.discount?.finalPrice,
                     percent: appointment.discount?.discountPercent,
                     fallback: appointment.price ?? 0,
                   });
-                  const inferredFinalPrice = birthdayDiscountInferred ? (appointment.price ?? 0) * 0.5 : prices.final;
+                  const inferredFinalPrice = birthdayDiscountInferred || isHalfPriceInferred ? (appointment.price ?? 0) : prices.final;
+                  const inferredOriginalPrice =
+                    birthdayDiscountInferred
+                      ? (appointment.price ?? 0) * 2
+                      : isHalfPriceInferred
+                        ? (baseServicePrice ?? prices.base)
+                        : prices.base;
 
                   return (
                     <div key={appointment.id} className="glass rounded-lg p-4">
@@ -616,8 +665,11 @@ const AdminDashboard = () => {
                               {birthdayDiscountInferred && !appointment.discount?.applied && (
                                 <p className="text-xs text-muted-foreground">Desconto inferido pela data de aniversario e servico corte.</p>
                               )}
+                              {isHalfPriceInferred && !birthdayDiscountInferred && !appointment.discount?.applied && (
+                                <p className="text-xs text-muted-foreground">Desconto inferido pela diferenca entre preco base e preco cobrado.</p>
+                              )}
                               <p className="text-xs text-foreground">
-                                Original: {formatMoney(prices.base)}
+                                Original: {formatMoney(inferredOriginalPrice)}
                               </p>
                               <p className="text-xs text-foreground">
                                 Final: {formatMoney(inferredFinalPrice)}

@@ -5,6 +5,7 @@ const rawApiBaseUrl =
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, "");
 export const hasApiBaseUrl = API_BASE_URL.length > 0;
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 export const SESSION_TOKEN_KEY = "session_token";
 export const SESSION_USER_KEY = "session_user";
@@ -185,6 +186,37 @@ export interface AuthResponse {
   user: SessionUser;
 }
 
+export type PaymentStatus = "approved" | "pending" | "rejected" | "canceled";
+
+export interface PixPaymentResponse {
+  appointmentId: string;
+  paymentId?: string;
+  paymentIntentId?: string | null;
+  paymentStatus?: PaymentStatus;
+  providerStatus?: string;
+  paymentMethod?: string;
+  qrCodeBase64?: string;
+  qrCodeCopyPaste?: string;
+}
+
+export interface PointPaymentResponse {
+  appointmentId: string;
+  paymentIntentId?: string;
+  paymentId?: string;
+  paymentStatus?: PaymentStatus;
+  providerStatus?: string;
+  paymentMethod?: string;
+}
+
+export interface PaymentStatusResponse {
+  status: PaymentStatus;
+  providerStatus?: string;
+  paymentMethod?: string;
+  appointmentId?: string;
+  paymentId?: string;
+  paymentIntentId?: string;
+}
+
 function getStoredToken() {
   return localStorage.getItem(SESSION_TOKEN_KEY);
 }
@@ -216,6 +248,7 @@ export function getFriendlyErrorMessage(error: unknown) {
   }
 
   if (error.status === 0) return "Backend indisponivel no momento.";
+  if (error.code === "REQUEST_TIMEOUT") return "A requisicao demorou demais. Tente novamente.";
   if (error.status === 401 || error.code === "AUTH_TOKEN_EXPIRED") return "Sessao expirada. Faça login novamente.";
   if (error.status === 403 || error.code === "FORBIDDEN_ADMIN_ONLY") return "Voce nao tem permissao para esta acao.";
   if (error.status === 404) return "Recurso nao encontrado.";
@@ -379,6 +412,50 @@ function normalizeAppointment(raw: any): Appointment {
             undefined,
         }
       : undefined,
+  };
+}
+
+function normalizePaymentStatus(statusRaw: unknown): PaymentStatus {
+  const normalized = String(statusRaw || "pending").toLowerCase();
+
+  if (normalized === "approved") return "approved";
+  if (normalized === "rejected") return "rejected";
+  if (normalized === "canceled" || normalized === "cancelled") return "canceled";
+  return "pending";
+}
+
+function normalizePixPaymentResponse(raw: any): PixPaymentResponse {
+  return {
+    appointmentId: String(raw?.appointmentId ?? raw?.appointment_id ?? ""),
+    paymentId: raw?.paymentId ?? raw?.payment_id ?? undefined,
+    paymentIntentId: raw?.paymentIntentId ?? raw?.payment_intent_id ?? null,
+    paymentStatus: raw?.paymentStatus || raw?.payment_status ? normalizePaymentStatus(raw?.paymentStatus ?? raw?.payment_status) : undefined,
+    providerStatus: raw?.providerStatus ?? raw?.provider_status ?? undefined,
+    paymentMethod: raw?.paymentMethod ?? raw?.payment_method ?? undefined,
+    qrCodeBase64: raw?.qrCodeBase64 ?? raw?.qr_code_base64 ?? undefined,
+    qrCodeCopyPaste: raw?.qrCodeCopyPaste ?? raw?.qr_code_copy_paste ?? undefined,
+  };
+}
+
+function normalizePointPaymentResponse(raw: any): PointPaymentResponse {
+  return {
+    appointmentId: String(raw?.appointmentId ?? raw?.appointment_id ?? ""),
+    paymentIntentId: raw?.paymentIntentId ?? raw?.payment_intent_id ?? undefined,
+    paymentId: raw?.paymentId ?? raw?.payment_id ?? undefined,
+    paymentStatus: raw?.paymentStatus || raw?.payment_status ? normalizePaymentStatus(raw?.paymentStatus ?? raw?.payment_status) : undefined,
+    providerStatus: raw?.providerStatus ?? raw?.provider_status ?? undefined,
+    paymentMethod: raw?.paymentMethod ?? raw?.payment_method ?? undefined,
+  };
+}
+
+function normalizePaymentStatusResponse(raw: any): PaymentStatusResponse {
+  return {
+    status: normalizePaymentStatus(raw?.status ?? raw?.paymentStatus ?? raw?.payment_status),
+    providerStatus: raw?.providerStatus ?? raw?.provider_status ?? undefined,
+    paymentMethod: raw?.paymentMethod ?? raw?.payment_method ?? undefined,
+    appointmentId: raw?.appointmentId ?? raw?.appointment_id ?? undefined,
+    paymentId: raw?.paymentId ?? raw?.payment_id ?? undefined,
+    paymentIntentId: raw?.paymentIntentId ?? raw?.payment_intent_id ?? undefined,
   };
 }
 
@@ -632,6 +709,9 @@ async function apiRequest<T>(path: string, init?: RequestInit, requiresAuth = tr
   }
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+
   try {
     const method = (init?.method || "GET").toUpperCase();
     if (method === "GET") {
@@ -642,10 +722,17 @@ async function apiRequest<T>(path: string, init?: RequestInit, requiresAuth = tr
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers,
+      signal: controller.signal,
       cache: method === "GET" ? "no-store" : init?.cache,
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiClientError("Tempo limite excedido na requisicao.", 0, "REQUEST_TIMEOUT");
+    }
+
     throw new ApiClientError("Falha de conexao com backend.", 0, "BACKEND_UNAVAILABLE", error);
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   return parseResponse<T>(response);
@@ -727,7 +814,7 @@ export async function getMyAppointments(): Promise<Appointment[]> {
   return appointments.map(normalizeAppointment);
 }
 
-export async function createAppointment(input: { date: string; time: string; serviceType: string }): Promise<Appointment> {
+export async function createAppointment(input: { date: string; time: string; serviceType: string; paymentMethod?: string }): Promise<Appointment> {
   const time = normalizeTime(input.time);
   const serviceType = String(input.serviceType || "").trim();
 
@@ -739,9 +826,11 @@ export async function createAppointment(input: { date: string; time: string; ser
         appointment_date: input.date,
         appointment_time: time,
         service_type: serviceType,
+        payment_method: input.paymentMethod || undefined,
         appointmentDate: input.date,
         appointmentTime: time,
         serviceType,
+        paymentMethod: input.paymentMethod || undefined,
       }),
     },
     true,
@@ -818,4 +907,79 @@ export async function createAdminVariableExpense(payload: CreateVariableExpenseP
   );
 
   return normalizeVariableExpense(data?.variable_expense ?? data?.expense ?? data);
+}
+
+export async function createPixPayment(input: {
+  appointmentId: string;
+  description?: string;
+  payerEmail?: string;
+  payerName?: string;
+  idempotencyKey?: string;
+}): Promise<PixPaymentResponse> {
+  const headers: Record<string, string> = {};
+  if (input.idempotencyKey) {
+    headers["X-Idempotency-Key"] = input.idempotencyKey;
+  }
+
+  const data = await apiRequest<any>(
+    "/api/payments/create-pix",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        appointment_id: input.appointmentId,
+        description: input.description,
+        payer_email: input.payerEmail,
+        payer_name: input.payerName,
+      }),
+    },
+    true,
+  );
+
+  return normalizePixPaymentResponse(data);
+}
+
+export async function createPointPayment(input: {
+  appointmentId: string;
+  description?: string;
+  idempotencyKey?: string;
+}): Promise<PointPaymentResponse> {
+  const headers: Record<string, string> = {};
+  if (input.idempotencyKey) {
+    headers["X-Idempotency-Key"] = input.idempotencyKey;
+  }
+
+  const data = await apiRequest<any>(
+    "/api/payments/create-point",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        appointment_id: input.appointmentId,
+        description: input.description,
+      }),
+    },
+    true,
+  );
+
+  return normalizePointPaymentResponse(data);
+}
+
+export async function getPaymentStatus(reference: string): Promise<PaymentStatusResponse> {
+  const data = await apiRequest<any>(`/api/payments/status/${encodeURIComponent(reference)}`, { method: "GET" }, true);
+  return normalizePaymentStatusResponse(data);
+}
+
+export async function cancelPayment(reference: string): Promise<PaymentStatusResponse> {
+  try {
+    const data = await apiRequest<any>(`/api/payments/cancel/${encodeURIComponent(reference)}`, { method: "POST" }, true);
+    return normalizePaymentStatusResponse(data);
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) {
+      const data = await apiRequest<any>(`/api/payments/cancel/${encodeURIComponent(reference)}`, { method: "DELETE" }, true);
+      return normalizePaymentStatusResponse(data);
+    }
+
+    throw error;
+  }
 }

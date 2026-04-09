@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { addDays, format, startOfToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -8,13 +8,17 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
+  cancelPayment,
   createAppointment,
+  createPixPayment,
   getAppointmentServices,
   getFriendlyErrorMessage,
+  getPaymentStatus,
   getSlotsByDate,
   type Appointment,
   type AppointmentService,
   type AppointmentSlot,
+  type PaymentStatus,
   type SlotsMeta,
 } from "@/lib/api";
 import { BUSINESS_WHATSAPP_NUMBER, openWhatsAppMessage } from "@/lib/whatsapp";
@@ -74,13 +78,38 @@ function isBirthdayToday(dateText?: string) {
   return month === now.getMonth() + 1 && day === now.getDate();
 }
 
+function generateIdempotencyKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `pay_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+
   console.group(`[BOOKING_DEBUG] ${step}`);
   Object.entries(payload).forEach(([key, value]) => {
     console.log(`${key}:`, value);
   });
   console.groupEnd();
 }
+
+type PaymentUiState = "idle" | "creating" | "pending" | "approved" | "rejected" | "canceled" | "error";
+
+type PaymentFlowState = {
+  state: PaymentUiState;
+  appointmentId?: string;
+  paymentId?: string;
+  paymentIntentId?: string;
+  paymentMethod?: string;
+  providerStatus?: string;
+  qrCodeBase64?: string;
+  qrCodeCopyPaste?: string;
+  lastCheckedAt?: string;
+  errorMessage?: string;
+};
 
 const Booking = () => {
   const { user, birthdayDiscount, loading: authLoading } = useAuth();
@@ -99,6 +128,7 @@ const Booking = () => {
   const [services, setServices] = useState<AppointmentService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<"presencial" | "online">("presencial");
   const [lastDiscountSummary, setLastDiscountSummary] = useState<{
     applied: boolean;
     message?: string;
@@ -106,6 +136,15 @@ const Booking = () => {
     finalPrice?: number;
     discountPercent?: number;
   } | null>(null);
+  const [paymentFlow, setPaymentFlow] = useState<PaymentFlowState>({ state: "idle" });
+
+  const pollingStartedAtRef = useRef<number | null>(null);
+  const pollingTimerRef = useRef<number | null>(null);
+  const latestPaymentFlowRef = useRef<PaymentFlowState>({ state: "idle" });
+
+  useEffect(() => {
+    latestPaymentFlowRef.current = paymentFlow;
+  }, [paymentFlow]);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -249,6 +288,12 @@ const Booking = () => {
     loadServices();
   }, [user]);
 
+  useEffect(() => {
+    return () => {
+      clearPaymentPolling();
+    };
+  }, []);
+
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
   const birthdayPercent = birthdayDiscount.discountPercent && birthdayDiscount.discountPercent > 0 ? birthdayDiscount.discountPercent : 50;
   const birthdayEligibleToday = isBirthdayToday(user?.birthDate);
@@ -277,6 +322,146 @@ const Booking = () => {
       dateValue,
       timeValue,
     };
+  };
+
+  const clearPaymentPolling = () => {
+    if (pollingTimerRef.current) {
+      window.clearTimeout(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+  };
+
+  const getPaymentReference = (flow: PaymentFlowState) => flow.paymentId || flow.paymentIntentId || "";
+
+  const updatePaymentFromStatus = (status: PaymentStatus, providerStatus?: string) => {
+    setPaymentFlow((prev) => ({
+      ...prev,
+      state: status,
+      providerStatus: providerStatus || prev.providerStatus,
+      lastCheckedAt: new Date().toISOString(),
+    }));
+  };
+
+  const fetchLatestPaymentStatus = async (silent = false) => {
+    const currentFlow = latestPaymentFlowRef.current;
+    const reference = getPaymentReference(currentFlow);
+    if (!reference) return;
+
+    try {
+      const result = await getPaymentStatus(reference);
+      updatePaymentFromStatus(result.status, result.providerStatus);
+
+      if (result.status === "approved") {
+        clearPaymentPolling();
+        toast({
+          title: "Pagamento confirmado",
+          description: "Seu pagamento foi aprovado com sucesso.",
+        });
+        navigate("/meus-agendamentos");
+        return;
+      }
+
+      if (result.status === "rejected" || result.status === "canceled") {
+        clearPaymentPolling();
+        toast({
+          title: result.status === "rejected" ? "Pagamento recusado" : "Pagamento cancelado",
+          description: "Voce pode tentar novamente ou escolher pagamento presencial.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        clearPaymentPolling();
+        toast({
+          title: "Sessao expirada",
+          description: "Faça login novamente para continuar.",
+          variant: "destructive",
+        });
+        navigate("/login");
+        return;
+      }
+
+      if (!silent) {
+        toast({
+          title: "Erro ao consultar pagamento",
+          description:
+            error instanceof ApiClientError && (error.status === 400 || error.status === 409)
+              ? error.message
+              : "Nao foi possivel consultar o status do pagamento. Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const startPaymentPolling = () => {
+    clearPaymentPolling();
+    pollingStartedAtRef.current = Date.now();
+
+    const poll = async () => {
+      const startedAt = pollingStartedAtRef.current || Date.now();
+      const elapsed = Date.now() - startedAt;
+
+      if (elapsed >= 5 * 60 * 1000) {
+        clearPaymentPolling();
+        setPaymentFlow((prev) => ({
+          ...prev,
+          state: "error",
+          errorMessage: "Tempo de confirmacao excedido. Verifique o status manualmente.",
+        }));
+        return;
+      }
+
+      await fetchLatestPaymentStatus(true);
+
+      const current = latestPaymentFlowRef.current;
+      if (current.state === "approved" || current.state === "rejected" || current.state === "canceled") {
+        clearPaymentPolling();
+        return;
+      }
+
+      const nextInterval = elapsed >= 60_000 ? 5000 : 3000;
+      pollingTimerRef.current = window.setTimeout(poll, nextInterval);
+    };
+
+    pollingTimerRef.current = window.setTimeout(poll, 3000);
+  };
+
+  const handleCopyPixCode = async () => {
+    const code = paymentFlow.qrCodeCopyPaste || "";
+    if (!code) return;
+
+    try {
+      await navigator.clipboard.writeText(code);
+      toast({ title: "Codigo PIX copiado" });
+    } catch {
+      toast({
+        title: "Nao foi possivel copiar",
+        description: "Copie manualmente o codigo exibido.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCancelCurrentPayment = async () => {
+    const reference = getPaymentReference(paymentFlow);
+    if (!reference) return;
+
+    try {
+      const result = await cancelPayment(reference);
+      clearPaymentPolling();
+      updatePaymentFromStatus(result.status, result.providerStatus);
+      toast({ title: "Pagamento cancelado" });
+    } catch (error) {
+      toast({
+        title: "Nao foi possivel cancelar pagamento",
+        description:
+          error instanceof ApiClientError && (error.status === 400 || error.status === 409)
+            ? error.message
+            : "Tente novamente em instantes.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleBook = async () => {
@@ -359,6 +544,7 @@ const Booking = () => {
         date: selectedDate,
         time: selectedTime,
         serviceType: selectedServiceKey,
+        paymentMethod: paymentMethodChoice,
       });
 
       const summary = getAppointmentSummary(createdAppointment);
@@ -402,6 +588,55 @@ const Booking = () => {
         } else {
           setLastDiscountSummary(null);
         }
+      }
+
+      if (paymentMethodChoice === "online") {
+        setPaymentFlow((prev) => ({
+          ...prev,
+          state: "creating",
+          appointmentId: createdAppointment.id,
+          paymentMethod: "pix",
+          errorMessage: undefined,
+        }));
+
+        const idempotencyKey = generateIdempotencyKey();
+        const pix = await createPixPayment({
+          appointmentId: createdAppointment.id,
+          description: `Agendamento ${summary.serviceLabel} - ${summary.dateValue} ${summary.timeValue.slice(0, 5)}`,
+          payerEmail: user?.email,
+          payerName: user?.fullName,
+          idempotencyKey,
+        });
+
+        setPaymentFlow({
+          state: pix.paymentStatus === "approved" ? "approved" : pix.paymentStatus === "rejected" ? "rejected" : pix.paymentStatus === "canceled" ? "canceled" : "pending",
+          appointmentId: pix.appointmentId || createdAppointment.id,
+          paymentId: pix.paymentId,
+          paymentIntentId: pix.paymentIntentId || undefined,
+          paymentMethod: pix.paymentMethod || "pix",
+          providerStatus: pix.providerStatus,
+          qrCodeBase64: pix.qrCodeBase64,
+          qrCodeCopyPaste: pix.qrCodeCopyPaste,
+          lastCheckedAt: new Date().toISOString(),
+        });
+
+        if (pix.paymentStatus === "approved") {
+          toast({
+            title: "Pagamento aprovado",
+            description: "Pagamento confirmado automaticamente.",
+          });
+          navigate("/meus-agendamentos");
+          return;
+        }
+
+        startPaymentPolling();
+
+        toast({
+          title: "PIX gerado",
+          description: "Finalize o pagamento e acompanhe o status abaixo.",
+        });
+
+        return;
       }
 
       const bookingWhatsAppMessage = [
@@ -728,11 +963,88 @@ const Booking = () => {
                     </p>
                   </div>
                 )}
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">Forma de pagamento</p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      type="button"
+                      variant={paymentMethodChoice === "presencial" ? "default" : "outline"}
+                      className="h-8 text-xs"
+                      onClick={() => setPaymentMethodChoice("presencial")}
+                    >
+                      Pagar presencialmente
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={paymentMethodChoice === "online" ? "default" : "outline"}
+                      className="h-8 text-xs"
+                      onClick={() => setPaymentMethodChoice("online")}
+                    >
+                      Pagar online (Mercado Pago)
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
-            <Button onClick={handleBook} disabled={submitting || !selectedServiceKey} className="font-heading w-full sm:w-auto">
-              {submitting ? "Agendando..." : "CONFIRMAR AGENDAMENTO"}
+            <Button
+              onClick={handleBook}
+              disabled={submitting || !selectedServiceKey || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
+              className="font-heading w-full sm:w-auto"
+            >
+              {submitting ? "Agendando..." : paymentFlow.state === "creating" ? "Gerando pagamento..." : "CONFIRMAR AGENDAMENTO"}
             </Button>
+          </div>
+        )}
+
+        {(paymentFlow.state === "pending" || paymentFlow.state === "creating" || paymentFlow.state === "approved" || paymentFlow.state === "rejected" || paymentFlow.state === "canceled" || paymentFlow.state === "error") && (
+          <div className="mt-6 glass rounded-lg p-5 space-y-3 animate-fade-in">
+            <h3 className="font-heading text-lg">Pagamento online</h3>
+            <p className="text-sm text-muted-foreground">
+              Status: <span className="font-semibold text-foreground">{paymentFlow.state}</span>
+              {paymentFlow.providerStatus ? ` • ${paymentFlow.providerStatus}` : ""}
+            </p>
+
+            {paymentFlow.qrCodeBase64 && (
+              <div className="rounded-md border border-border p-3 bg-background w-fit">
+                <img
+                  src={paymentFlow.qrCodeBase64.startsWith("data:") ? paymentFlow.qrCodeBase64 : `data:image/png;base64,${paymentFlow.qrCodeBase64}`}
+                  alt="QR Code PIX"
+                  className="h-44 w-44 object-contain"
+                />
+              </div>
+            )}
+
+            {paymentFlow.qrCodeCopyPaste && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Codigo copia e cola</p>
+                <div className="rounded-md border border-border bg-background p-2 text-xs break-all">
+                  {paymentFlow.qrCodeCopyPaste}
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={handleCopyPixCode}>
+                  Copiar codigo PIX
+                </Button>
+              </div>
+            )}
+
+            {paymentFlow.errorMessage && <p className="text-sm text-destructive">{paymentFlow.errorMessage}</p>}
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fetchLatestPaymentStatus(false)}
+                disabled={paymentFlow.state === "creating"}
+              >
+                Verificar status
+              </Button>
+
+              {paymentFlow.state === "pending" && (
+                <Button type="button" variant="outline" onClick={handleCancelCurrentPayment}>
+                  Cancelar pagamento
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
