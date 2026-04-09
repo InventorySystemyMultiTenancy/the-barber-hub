@@ -73,6 +73,55 @@ export interface AppointmentService {
   price: number;
 }
 
+export interface FinancialReportPeriod {
+  startDate: string;
+  endDate: string;
+}
+
+export interface FinancialReport {
+  period: FinancialReportPeriod;
+  paidAppointmentsCount: number;
+  paidAppointmentsRevenue: number;
+  fixedExpensesTotal: number;
+  variableExpensesTotal: number;
+  totalExpenses: number;
+  netProfit: number;
+}
+
+export interface FixedExpense {
+  id: string;
+  title: string;
+  amount: number;
+  startsOn: string;
+  endsOn?: string;
+  isActive: boolean;
+  notes?: string;
+}
+
+export interface VariableExpense {
+  id: string;
+  title: string;
+  amount: number;
+  expenseDate: string;
+  notes?: string;
+}
+
+export interface CreateFixedExpensePayload {
+  title: string;
+  amount: number;
+  starts_on: string;
+  ends_on?: string;
+  is_active?: boolean;
+  notes?: string;
+}
+
+export interface CreateVariableExpensePayload {
+  title: string;
+  amount: number;
+  expense_date: string;
+  notes?: string;
+}
+
 export interface AppointmentSlot {
   time: string;
   status: AppointmentStatus;
@@ -213,6 +262,43 @@ function normalizeAppointmentService(raw: any): AppointmentService {
     key: String(raw.key ?? raw.service_type ?? raw.serviceType ?? ""),
     label: String(raw.label ?? raw.service_label ?? raw.serviceLabel ?? "Servico"),
     price: Number(raw.price ?? 0),
+  };
+}
+
+function normalizeFinancialReport(raw: any): FinancialReport {
+  return {
+    period: {
+      startDate: normalizeDateOnly(raw?.period?.start_date ?? raw?.period?.startDate ?? raw?.start_date ?? raw?.startDate ?? ""),
+      endDate: normalizeDateOnly(raw?.period?.end_date ?? raw?.period?.endDate ?? raw?.end_date ?? raw?.endDate ?? ""),
+    },
+    paidAppointmentsCount: Number(raw?.paid_appointments_count ?? raw?.paidAppointmentsCount ?? 0),
+    paidAppointmentsRevenue: Number(raw?.paid_appointments_revenue ?? raw?.paidAppointmentsRevenue ?? 0),
+    fixedExpensesTotal: Number(raw?.fixed_expenses_total ?? raw?.fixedExpensesTotal ?? 0),
+    variableExpensesTotal: Number(raw?.variable_expenses_total ?? raw?.variableExpensesTotal ?? 0),
+    totalExpenses: Number(raw?.total_expenses ?? raw?.totalExpenses ?? 0),
+    netProfit: Number(raw?.net_profit ?? raw?.netProfit ?? 0),
+  };
+}
+
+function normalizeFixedExpense(raw: any): FixedExpense {
+  return {
+    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? ""),
+    title: String(raw.title ?? ""),
+    amount: Number(raw.amount ?? 0),
+    startsOn: normalizeDateOnly(raw.starts_on ?? raw.startsOn ?? ""),
+    endsOn: normalizeDateOnly(raw.ends_on ?? raw.endsOn ?? "") || undefined,
+    isActive: Boolean(raw.is_active ?? raw.isActive ?? true),
+    notes: raw.notes ? String(raw.notes) : undefined,
+  };
+}
+
+function normalizeVariableExpense(raw: any): VariableExpense {
+  return {
+    id: String(raw.id ?? raw.expense_id ?? raw.expenseId ?? ""),
+    title: String(raw.title ?? ""),
+    amount: Number(raw.amount ?? 0),
+    expenseDate: normalizeDateOnly(raw.expense_date ?? raw.expenseDate ?? ""),
+    notes: raw.notes ? String(raw.notes) : undefined,
   };
 }
 
@@ -427,4 +513,49 @@ export async function updateAdminAppointmentStatus(id: string, status: Appointme
 
 export async function deleteAdminAppointment(id: string) {
   await apiRequest<unknown>(`/api/admin/appointments/${id}`, { method: "DELETE" }, true);
+}
+
+export async function getAdminFinancialReport(startDate: string, endDate: string): Promise<FinancialReport> {
+  const query = new URLSearchParams({ startDate, endDate }).toString();
+  const data = await apiRequest<any>(`/api/admin/reports/financial?${query}`, { method: "GET" }, true);
+  return normalizeFinancialReport(data?.report ?? data);
+}
+
+export async function getAdminFixedExpenses(): Promise<FixedExpense[]> {
+  const data = await apiRequest<any>("/api/admin/expenses/fixed", { method: "GET" }, true);
+  const expenses = extractCollection(data, ["fixedExpenses", "expenses", "items"]);
+  return expenses.map(normalizeFixedExpense).filter((expense) => expense.id.length > 0);
+}
+
+export async function createAdminFixedExpense(payload: CreateFixedExpensePayload): Promise<FixedExpense> {
+  const data = await apiRequest<any>(
+    "/api/admin/expenses/fixed",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeFixedExpense(data?.expense ?? data);
+}
+
+export async function getAdminVariableExpenses(startDate: string, endDate: string): Promise<VariableExpense[]> {
+  const query = new URLSearchParams({ startDate, endDate }).toString();
+  const data = await apiRequest<any>(`/api/admin/expenses/variable?${query}`, { method: "GET" }, true);
+  const expenses = extractCollection(data, ["variableExpenses", "expenses", "items"]);
+  return expenses.map(normalizeVariableExpense).filter((expense) => expense.id.length > 0);
+}
+
+export async function createAdminVariableExpense(payload: CreateVariableExpensePayload): Promise<VariableExpense> {
+  const data = await apiRequest<any>(
+    "/api/admin/expenses/variable",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeVariableExpense(data?.expense ?? data);
 }

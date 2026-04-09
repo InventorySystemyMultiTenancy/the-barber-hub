@@ -1,17 +1,40 @@
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { CalendarDays, CheckCircle, DollarSign, RotateCcw, Shield, Trash2 } from "lucide-react";
+import {
+  BarChart3,
+  CalendarDays,
+  CheckCircle,
+  DollarSign,
+  Landmark,
+  RotateCcw,
+  Shield,
+  Trash2,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  ApiClientError,
+  createAdminFixedExpense,
+  createAdminVariableExpense,
   deleteAdminAppointment,
+  getAdminFinancialReport,
+  getAdminFixedExpenses,
   getAdminAppointmentsByDate,
+  getAdminVariableExpenses,
   getFriendlyErrorMessage,
   updateAdminAppointmentStatus,
   type Appointment,
   type AppointmentStatus,
+  type FinancialReport,
+  type FixedExpense,
+  type VariableExpense,
 } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
@@ -20,6 +43,22 @@ function formatMoney(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(value || 0);
+}
+
+function getCurrentPeriod() {
+  const now = new Date();
+  return {
+    startDate: format(new Date(now.getFullYear(), now.getMonth(), 1), "yyyy-MM-dd"),
+    endDate: format(now, "yyyy-MM-dd"),
+  };
+}
+
+function formatDateBr(dateText?: string) {
+  if (!dateText) return "-";
+
+  const [year, month, day] = dateText.split("-");
+  if (!year || !month || !day) return dateText;
+  return `${day}/${month}/${year}`;
 }
 
 function toServiceLabel(appointment: Appointment) {
@@ -35,9 +74,46 @@ function toServiceLabel(appointment: Appointment) {
 const AdminDashboard = () => {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const currentPeriod = getCurrentPeriod();
+
+  const [activeTab, setActiveTab] = useState("agenda");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  const [filterStartDate, setFilterStartDate] = useState(currentPeriod.startDate);
+  const [filterEndDate, setFilterEndDate] = useState(currentPeriod.endDate);
+  const [appliedStartDate, setAppliedStartDate] = useState(currentPeriod.startDate);
+  const [appliedEndDate, setAppliedEndDate] = useState(currentPeriod.endDate);
+
+  const [financialSummary, setFinancialSummary] = useState<FinancialReport | null>(null);
+  const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
+  const [variableExpenses, setVariableExpenses] = useState<VariableExpense[]>([]);
+
+  const [financialLoading, setFinancialLoading] = useState(false);
+  const [fixedLoading, setFixedLoading] = useState(false);
+  const [variableLoading, setVariableLoading] = useState(false);
+
+  const [financialError, setFinancialError] = useState<string | null>(null);
+  const [fixedError, setFixedError] = useState<string | null>(null);
+  const [variableError, setVariableError] = useState<string | null>(null);
+
+  const [reportsForbidden, setReportsForbidden] = useState(false);
+
+  const [fixedSubmitting, setFixedSubmitting] = useState(false);
+  const [variableSubmitting, setVariableSubmitting] = useState(false);
+
+  const [fixedTitle, setFixedTitle] = useState("");
+  const [fixedAmount, setFixedAmount] = useState("");
+  const [fixedStartsOn, setFixedStartsOn] = useState(currentPeriod.startDate);
+  const [fixedEndsOn, setFixedEndsOn] = useState("");
+  const [fixedIsActive, setFixedIsActive] = useState(true);
+  const [fixedNotes, setFixedNotes] = useState("");
+
+  const [variableTitle, setVariableTitle] = useState("");
+  const [variableAmount, setVariableAmount] = useState("");
+  const [variableExpenseDate, setVariableExpenseDate] = useState(currentPeriod.endDate);
+  const [variableNotes, setVariableNotes] = useState("");
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -45,12 +121,44 @@ const AdminDashboard = () => {
     }
   }, [user, isAdmin, authLoading, navigate]);
 
+  const handleAdminApiError = (error: unknown, options?: { onForbidden?: () => void; silentToast?: boolean }) => {
+    if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+      if (error.status === 401) {
+        if (!options?.silentToast) {
+          toast({
+            title: "Sessao expirada",
+            description: "Faça login novamente para continuar.",
+            variant: "destructive",
+          });
+        }
+        navigate("/login");
+        return true;
+      }
+
+      options?.onForbidden?.();
+
+      if (!options?.silentToast) {
+        toast({
+          title: "Sem permissao",
+          description: "Voce nao tem permissao para acessar esta area.",
+          variant: "destructive",
+        });
+      }
+
+      return true;
+    }
+
+    return false;
+  };
+
   const loadAppointments = async () => {
     setLoading(true);
     try {
       const data = await getAdminAppointmentsByDate(filterDate);
       setAppointments(data);
     } catch (error) {
+      if (handleAdminApiError(error)) return;
+
       setAppointments([]);
       toast({
         title: "Erro ao carregar painel",
@@ -62,11 +170,79 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadFinancialSummary = async (startDate: string, endDate: string) => {
+    setFinancialLoading(true);
+    setFinancialError(null);
+
+    try {
+      const data = await getAdminFinancialReport(startDate, endDate);
+      setFinancialSummary(data);
+      setReportsForbidden(false);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true), silentToast: true })) {
+        setFinancialError("Sem permissao para consultar relatorio financeiro.");
+      } else {
+        setFinancialError(getFriendlyErrorMessage(error));
+      }
+    } finally {
+      setFinancialLoading(false);
+    }
+  };
+
+  const loadFixedExpenses = async () => {
+    setFixedLoading(true);
+    setFixedError(null);
+
+    try {
+      const data = await getAdminFixedExpenses();
+      setFixedExpenses(data);
+      setReportsForbidden(false);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true), silentToast: true })) {
+        setFixedError("Sem permissao para listar gastos fixos.");
+      } else {
+        setFixedError(getFriendlyErrorMessage(error));
+      }
+    } finally {
+      setFixedLoading(false);
+    }
+  };
+
+  const loadVariableExpenses = async (startDate: string, endDate: string) => {
+    setVariableLoading(true);
+    setVariableError(null);
+
+    try {
+      const data = await getAdminVariableExpenses(startDate, endDate);
+      setVariableExpenses(data);
+      setReportsForbidden(false);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true), silentToast: true })) {
+        setVariableError("Sem permissao para listar gastos variaveis.");
+      } else {
+        setVariableError(getFriendlyErrorMessage(error));
+      }
+    } finally {
+      setVariableLoading(false);
+    }
+  };
+
+  const reloadReportsByPeriod = async (startDate: string, endDate: string) => {
+    await Promise.allSettled([loadFinancialSummary(startDate, endDate), loadVariableExpenses(startDate, endDate)]);
+  };
+
   useEffect(() => {
     if (isAdmin) {
       loadAppointments();
     }
   }, [isAdmin, filterDate]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadFixedExpenses();
+      reloadReportsByPeriod(appliedStartDate, appliedEndDate);
+    }
+  }, [isAdmin]);
 
   const updateStatus = async (id: string, status: AppointmentStatus) => {
     if (status === "disponivel") {
@@ -79,6 +255,8 @@ const AdminDashboard = () => {
       toast({ title: `Status atualizado para ${status}` });
       await loadAppointments();
     } catch (error) {
+      if (handleAdminApiError(error)) return;
+
       toast({
         title: "Erro ao atualizar status",
         description: getFriendlyErrorMessage(error),
@@ -96,6 +274,8 @@ const AdminDashboard = () => {
       toast({ title: "Agendamento removido" });
       await loadAppointments();
     } catch (error) {
+      if (handleAdminApiError(error)) return;
+
       toast({
         title: "Erro ao remover",
         description: getFriendlyErrorMessage(error),
@@ -113,6 +293,129 @@ const AdminDashboard = () => {
 
     return { totalAgendado, totalPago, faturamento };
   }, [appointments]);
+
+  const applyReportFilter = async () => {
+    if (!filterStartDate || !filterEndDate) {
+      toast({
+        title: "Periodo invalido",
+        description: "Informe data inicial e data final.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (filterStartDate > filterEndDate) {
+      toast({
+        title: "Periodo invalido",
+        description: "A data inicial deve ser menor ou igual a data final.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAppliedStartDate(filterStartDate);
+    setAppliedEndDate(filterEndDate);
+    await reloadReportsByPeriod(filterStartDate, filterEndDate);
+  };
+
+  const handleCreateFixedExpense = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const amount = Number(fixedAmount);
+    if (!fixedTitle.trim() || !Number.isFinite(amount) || amount <= 0 || !fixedStartsOn) {
+      toast({
+        title: "Dados invalidos",
+        description: "Preencha titulo, valor maior que zero e data inicial.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (fixedEndsOn && fixedStartsOn > fixedEndsOn) {
+      toast({
+        title: "Periodo invalido",
+        description: "A data final do gasto fixo deve ser maior ou igual a data inicial.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setFixedSubmitting(true);
+    try {
+      await createAdminFixedExpense({
+        title: fixedTitle.trim(),
+        amount,
+        starts_on: fixedStartsOn,
+        ends_on: fixedEndsOn || undefined,
+        is_active: fixedIsActive,
+        notes: fixedNotes.trim() || undefined,
+      });
+
+      toast({ title: "Gasto fixo cadastrado com sucesso" });
+      setFixedTitle("");
+      setFixedAmount("");
+      setFixedEndsOn("");
+      setFixedNotes("");
+      setFixedIsActive(true);
+
+      await Promise.allSettled([loadFixedExpenses(), loadFinancialSummary(appliedStartDate, appliedEndDate)]);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true) })) return;
+
+      toast({
+        title: "Erro ao cadastrar gasto fixo",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setFixedSubmitting(false);
+    }
+  };
+
+  const handleCreateVariableExpense = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const amount = Number(variableAmount);
+    if (!variableTitle.trim() || !Number.isFinite(amount) || amount <= 0 || !variableExpenseDate) {
+      toast({
+        title: "Dados invalidos",
+        description: "Preencha titulo, valor maior que zero e data da despesa.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setVariableSubmitting(true);
+    try {
+      await createAdminVariableExpense({
+        title: variableTitle.trim(),
+        amount,
+        expense_date: variableExpenseDate,
+        notes: variableNotes.trim() || undefined,
+      });
+
+      toast({ title: "Gasto variavel cadastrado com sucesso" });
+      setVariableTitle("");
+      setVariableAmount("");
+      setVariableNotes("");
+      setVariableExpenseDate(appliedEndDate);
+
+      await Promise.allSettled([
+        loadVariableExpenses(appliedStartDate, appliedEndDate),
+        loadFinancialSummary(appliedStartDate, appliedEndDate),
+      ]);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true) })) return;
+
+      toast({
+        title: "Erro ao cadastrar gasto variavel",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setVariableSubmitting(false);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -137,103 +440,354 @@ const AdminDashboard = () => {
           </h1>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="glass rounded-lg p-5 text-center">
-            <CalendarDays className="h-8 w-8 text-primary mx-auto mb-2" />
-            <p className="text-2xl font-heading font-bold">{appointments.length}</p>
-            <p className="text-sm text-muted-foreground">Total do dia</p>
-          </div>
-          <div className="glass rounded-lg p-5 text-center">
-            <CheckCircle className="h-8 w-8 text-green-400 mx-auto mb-2" />
-            <p className="text-2xl font-heading font-bold">{totals.totalPago}</p>
-            <p className="text-sm text-muted-foreground">Cortes pagos</p>
-          </div>
-          <div className="glass rounded-lg p-5 text-center">
-            <DollarSign className="h-8 w-8 text-primary mx-auto mb-2" />
-            <p className="text-2xl font-heading font-bold">R$ {totals.faturamento}</p>
-            <p className="text-sm text-muted-foreground">Faturamento</p>
-          </div>
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="w-full max-w-sm grid grid-cols-2 mb-8">
+            <TabsTrigger value="agenda">Agenda</TabsTrigger>
+            <TabsTrigger value="relatorios" className="gap-2">
+              <BarChart3 className="h-4 w-4" /> Relatorios
+            </TabsTrigger>
+          </TabsList>
 
-        <div className="mb-6">
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(event) => setFilterDate(event.target.value)}
-            className="bg-card border border-border rounded-lg px-4 py-2 text-foreground font-heading"
-          />
-        </div>
+          <TabsContent value="agenda" className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="glass rounded-lg p-5 text-center">
+                <CalendarDays className="h-8 w-8 text-primary mx-auto mb-2" />
+                <p className="text-2xl font-heading font-bold">{appointments.length}</p>
+                <p className="text-sm text-muted-foreground">Total do dia</p>
+              </div>
+              <div className="glass rounded-lg p-5 text-center">
+                <CheckCircle className="h-8 w-8 text-green-400 mx-auto mb-2" />
+                <p className="text-2xl font-heading font-bold">{totals.totalPago}</p>
+                <p className="text-sm text-muted-foreground">Cortes pagos</p>
+              </div>
+              <div className="glass rounded-lg p-5 text-center">
+                <DollarSign className="h-8 w-8 text-primary mx-auto mb-2" />
+                <p className="text-2xl font-heading font-bold">{formatMoney(totals.faturamento)}</p>
+                <p className="text-sm text-muted-foreground">Faturamento</p>
+              </div>
+            </div>
 
-        {loading ? (
-          <p className="text-muted-foreground text-center py-12">Carregando...</p>
-        ) : appointments.length === 0 ? (
-          <div className="text-center py-16 glass rounded-lg">
-            <p className="text-muted-foreground">Nenhum agendamento nesta data</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <h2 className="font-heading text-lg font-semibold">Horarios de clientes</h2>
-            {appointments.map((appointment) => {
-              const statusClass =
-                appointment.status === "pago"
-                  ? "bg-green-500/20 text-green-400"
-                  : appointment.status === "agendado"
-                    ? "bg-primary/20 text-primary"
-                    : "bg-muted text-muted-foreground";
+            <div>
+              <Input
+                type="date"
+                value={filterDate}
+                onChange={(event) => setFilterDate(event.target.value)}
+                className="max-w-xs bg-card border-border text-foreground font-heading"
+              />
+            </div>
 
-              return (
-                <div key={appointment.id} className="glass rounded-lg p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
+            {loading ? (
+              <p className="text-muted-foreground text-center py-12">Carregando...</p>
+            ) : appointments.length === 0 ? (
+              <div className="text-center py-16 glass rounded-lg">
+                <p className="text-muted-foreground">Nenhum agendamento nesta data</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <h2 className="font-heading text-lg font-semibold">Horarios de clientes</h2>
+                {appointments.map((appointment) => {
+                  const statusClass =
+                    appointment.status === "pago"
+                      ? "bg-green-500/20 text-green-400"
+                      : appointment.status === "agendado"
+                        ? "bg-primary/20 text-primary"
+                        : "bg-muted text-muted-foreground";
+
+                  return (
+                    <div key={appointment.id} className="glass rounded-lg p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
+                          </div>
+                          <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
+                          <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
+                          <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {appointment.phone || "-"} · {appointment.email || "-"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {appointment.status === "agendado" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateStatus(appointment.id, "pago")}
+                              className="text-green-400 border-green-400/30 hover:bg-green-400/10 gap-1"
+                            >
+                              <CheckCircle className="h-3 w-3" /> Pago
+                            </Button>
+                          )}
+
+                          {appointment.status !== "disponivel" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateStatus(appointment.id, "disponivel")}
+                              className="gap-1"
+                            >
+                              <RotateCcw className="h-3 w-3" /> Liberar horario
+                            </Button>
+                          )}
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => removeAppointment(appointment.id)}
+                            className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
+                          >
+                            <Trash2 className="h-3 w-3" /> Excluir agendamento
+                          </Button>
+                        </div>
                       </div>
-                      <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
-                      <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
-                      <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {appointment.phone || "-"} · {appointment.email || "-"}
-                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {appointment.status === "agendado" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateStatus(appointment.id, "pago")}
-                          className="text-green-400 border-green-400/30 hover:bg-green-400/10 gap-1"
-                        >
-                          <CheckCircle className="h-3 w-3" /> Pago
-                        </Button>
-                      )}
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
 
-                      {appointment.status !== "disponivel" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateStatus(appointment.id, "disponivel")}
-                          className="gap-1"
-                        >
-                          <RotateCcw className="h-3 w-3" /> Liberar horario
-                        </Button>
-                      )}
+          <TabsContent value="relatorios" className="space-y-6">
+            <section className="glass rounded-lg p-4 md:p-5">
+              <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                <div className="w-full lg:w-auto">
+                  <label className="block text-sm text-muted-foreground mb-1">Data inicial</label>
+                  <Input type="date" value={filterStartDate} onChange={(event) => setFilterStartDate(event.target.value)} />
+                </div>
+                <div className="w-full lg:w-auto">
+                  <label className="block text-sm text-muted-foreground mb-1">Data final</label>
+                  <Input type="date" value={filterEndDate} onChange={(event) => setFilterEndDate(event.target.value)} />
+                </div>
+                <Button onClick={applyReportFilter} className="lg:mb-[1px]" disabled={financialLoading || variableLoading}>
+                  Aplicar filtro
+                </Button>
+              </div>
+            </section>
 
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => removeAppointment(appointment.id)}
-                        className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
-                      >
-                        <Trash2 className="h-3 w-3" /> Excluir agendamento
+            {reportsForbidden ? (
+              <div className="glass rounded-lg p-8 text-center">
+                <p className="font-heading text-lg">Sem permissao para acessar relatorios.</p>
+                <p className="text-sm text-muted-foreground mt-2">Se o problema persistir, faca login novamente.</p>
+                <Button className="mt-4" variant="outline" onClick={() => navigate("/login")}>Ir para login</Button>
+              </div>
+            ) : (
+              <>
+                <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground">Quantidade de pagamentos</p>
+                    <p className="font-heading text-2xl mt-1">
+                      {financialLoading ? "..." : (financialSummary?.paidAppointmentsCount ?? 0)}
+                    </p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground">Receita bruta</p>
+                    <p className="font-heading text-2xl mt-1">
+                      {financialLoading ? "..." : formatMoney(financialSummary?.paidAppointmentsRevenue ?? 0)}
+                    </p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground">Gastos fixos</p>
+                    <p className="font-heading text-2xl mt-1">
+                      {financialLoading ? "..." : formatMoney(financialSummary?.fixedExpensesTotal ?? 0)}
+                    </p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground">Gastos variaveis</p>
+                    <p className="font-heading text-2xl mt-1">
+                      {financialLoading ? "..." : formatMoney(financialSummary?.variableExpensesTotal ?? 0)}
+                    </p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground">Lucro liquido</p>
+                    <p
+                      className={`font-heading text-2xl mt-1 ${(financialSummary?.netProfit ?? 0) >= 0 ? "text-green-400" : "text-destructive"}`}
+                    >
+                      {financialLoading ? "..." : formatMoney(financialSummary?.netProfit ?? 0)}
+                    </p>
+                  </div>
+                </section>
+
+                {financialError && (
+                  <div className="glass rounded-lg p-4 border border-destructive/40">
+                    <p className="font-semibold text-destructive">Erro ao carregar resumo financeiro</p>
+                    <p className="text-sm text-muted-foreground mt-1">{financialError}</p>
+                    <Button
+                      variant="outline"
+                      className="mt-3"
+                      onClick={() => loadFinancialSummary(appliedStartDate, appliedEndDate)}
+                    >
+                      Tentar novamente
+                    </Button>
+                  </div>
+                )}
+
+                <section className="glass rounded-lg p-4 md:p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Landmark className="h-5 w-5 text-primary" />
+                    <h2 className="font-heading text-xl font-semibold">Gastos fixos mensais</h2>
+                  </div>
+
+                  <form onSubmit={handleCreateFixedExpense} className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                    <Input
+                      placeholder="Titulo do gasto fixo"
+                      value={fixedTitle}
+                      onChange={(event) => setFixedTitle(event.target.value)}
+                      required
+                    />
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="Valor"
+                      value={fixedAmount}
+                      onChange={(event) => setFixedAmount(event.target.value)}
+                      required
+                    />
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Inicio</label>
+                      <Input type="date" value={fixedStartsOn} onChange={(event) => setFixedStartsOn(event.target.value)} required />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Fim (opcional)</label>
+                      <Input type="date" value={fixedEndsOn} onChange={(event) => setFixedEndsOn(event.target.value)} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Textarea
+                        placeholder="Observacoes (opcional)"
+                        value={fixedNotes}
+                        onChange={(event) => setFixedNotes(event.target.value)}
+                        className="min-h-20"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-foreground md:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={fixedIsActive}
+                        onChange={(event) => setFixedIsActive(event.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      Gasto ativo
+                    </label>
+                    <Button type="submit" disabled={fixedSubmitting} className="md:w-fit">
+                      {fixedSubmitting ? "Salvando..." : "Cadastrar gasto fixo"}
+                    </Button>
+                  </form>
+
+                  {fixedError ? (
+                    <div className="rounded-md border border-destructive/40 p-3">
+                      <p className="text-destructive font-semibold">Erro ao carregar gastos fixos</p>
+                      <p className="text-sm text-muted-foreground mt-1">{fixedError}</p>
+                      <Button variant="outline" className="mt-3" onClick={loadFixedExpenses}>
+                        Tentar novamente
                       </Button>
                     </div>
+                  ) : fixedLoading ? (
+                    <p className="text-sm text-muted-foreground">Carregando gastos fixos...</p>
+                  ) : fixedExpenses.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhum gasto fixo cadastrado.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {fixedExpenses.map((expense) => (
+                        <div key={expense.id} className="rounded-md border border-border/70 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{expense.title}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Inicio: {formatDateBr(expense.startsOn)} · Fim: {formatDateBr(expense.endsOn)} · {expense.isActive ? "Ativo" : "Inativo"}
+                            </p>
+                            {expense.notes && <p className="text-xs text-muted-foreground mt-1">{expense.notes}</p>}
+                          </div>
+                          <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="glass rounded-lg p-4 md:p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Wallet className="h-5 w-5 text-primary" />
+                    <h2 className="font-heading text-xl font-semibold">Gastos variaveis</h2>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+
+                  <form onSubmit={handleCreateVariableExpense} className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                    <Input
+                      placeholder="Titulo do gasto variavel"
+                      value={variableTitle}
+                      onChange={(event) => setVariableTitle(event.target.value)}
+                      required
+                    />
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="Valor"
+                      value={variableAmount}
+                      onChange={(event) => setVariableAmount(event.target.value)}
+                      required
+                    />
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Data da despesa</label>
+                      <Input
+                        type="date"
+                        value={variableExpenseDate}
+                        onChange={(event) => setVariableExpenseDate(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Textarea
+                        placeholder="Observacoes (opcional)"
+                        value={variableNotes}
+                        onChange={(event) => setVariableNotes(event.target.value)}
+                        className="min-h-20"
+                      />
+                    </div>
+                    <Button type="submit" disabled={variableSubmitting} className="md:w-fit">
+                      {variableSubmitting ? "Salvando..." : "Cadastrar gasto variavel"}
+                    </Button>
+                  </form>
+
+                  <div className="mb-3 text-sm text-muted-foreground flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    Gastos variaveis de {formatDateBr(appliedStartDate)} ate {formatDateBr(appliedEndDate)}
+                  </div>
+
+                  {variableError ? (
+                    <div className="rounded-md border border-destructive/40 p-3">
+                      <p className="text-destructive font-semibold">Erro ao carregar gastos variaveis</p>
+                      <p className="text-sm text-muted-foreground mt-1">{variableError}</p>
+                      <Button
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => loadVariableExpenses(appliedStartDate, appliedEndDate)}
+                      >
+                        Tentar novamente
+                      </Button>
+                    </div>
+                  ) : variableLoading ? (
+                    <p className="text-sm text-muted-foreground">Carregando gastos variaveis...</p>
+                  ) : variableExpenses.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhum gasto variavel neste periodo.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {variableExpenses.map((expense) => (
+                        <div key={expense.id} className="rounded-md border border-border/70 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{expense.title}</p>
+                            <p className="text-xs text-muted-foreground">Data: {formatDateBr(expense.expenseDate)}</p>
+                            {expense.notes && <p className="text-xs text-muted-foreground mt-1">{expense.notes}</p>}
+                          </div>
+                          <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
