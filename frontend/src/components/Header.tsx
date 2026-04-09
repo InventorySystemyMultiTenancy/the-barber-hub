@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Scissors, LogOut, Calendar, Shield } from "lucide-react";
+import { LogOut, Calendar, Shield } from "lucide-react";
+import logoImage from "@/assets/Chincoa Cort's logo.png";
 
 const Header = () => {
   const { user, isAdmin, signOut } = useAuth();
@@ -10,7 +11,7 @@ const Header = () => {
     <header className="fixed top-0 left-0 right-0 z-50 glass">
       <div className="container mx-auto flex items-center justify-between h-16 px-4">
         <Link to="/" className="flex items-center gap-2">
-          <Scissors className="h-6 w-6 text-primary" />
+          <img src={logoImage} alt="Logo Chincoa Cortes" className="h-8 w-8 object-contain" />
           <span className="font-heading text-xl font-bold gold-text">CHINCOA CORTES</span>
         </Link>
 

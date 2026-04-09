@@ -4,6 +4,7 @@ import { Scissors, Clock, CalendarDays } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import heroImage from "@/assets/hero-barbershop.jpg";
+import logoImage from "@/assets/Chincoa Cort's logo.png";
 
 const Index = () => {
   const { user } = useAuth();
@@ -21,6 +22,12 @@ const Index = () => {
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/60 to-background" />
 
         <div className="relative z-10 text-center px-4 max-w-3xl mx-auto animate-fade-in">
+          <img
+            src={logoImage}
+            alt="Logo Chincoa Cortes"
+            className="h-20 w-20 md:h-24 md:w-24 object-contain mx-auto mb-4"
+          />
+
           <div className="inline-flex items-center gap-2 mb-6 px-4 py-2 rounded-full border border-primary/30 bg-primary/10">
             <Scissors className="h-4 w-4 text-primary" />
             <span className="text-sm text-primary font-medium">Barbearia Premium</span>
