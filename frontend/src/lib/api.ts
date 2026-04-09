@@ -181,7 +181,7 @@ function normalizeSlot(raw: any): AppointmentSlot {
   return {
     time: normalizeTime(String(raw.time ?? raw.appointment_time ?? raw.appointmentTime ?? "")),
     status: (raw.status ?? "disponivel") as AppointmentStatus,
-    appointmentId: raw.appointment_id ?? raw.appointmentId ?? raw.id ?? undefined,
+    appointmentId: raw.appointment_id ?? raw.appointmentId ?? undefined,
     reason: raw.reason ?? undefined,
   };
 }

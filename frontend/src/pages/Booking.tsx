@@ -169,9 +169,15 @@ const Booking = () => {
       if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
         setSelectedTime("");
         await loadSlots(selectedDate);
+
+        const isDbUniqueConflict =
+          !!error.details && typeof error.details === "object" && (error.details as Record<string, unknown>).source === "db_unique_index";
+
         toast({
           title: "Horario atualizado",
-          description: "Esse horario nao pode mais ser reservado. Escolha outro disponivel.",
+          description: isDbUniqueConflict
+            ? "Esse horario constava como disponivel, mas ja estava reservado no banco. Atualizamos a lista para voce escolher outro."
+            : "Esse horario nao pode mais ser reservado. Escolha outro disponivel.",
           variant: "destructive",
         });
         return;
