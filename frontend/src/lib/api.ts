@@ -433,7 +433,7 @@ function normalizePixPaymentResponse(raw: any): PixPaymentResponse {
     providerStatus: raw?.providerStatus ?? raw?.provider_status ?? undefined,
     paymentMethod: raw?.paymentMethod ?? raw?.payment_method ?? undefined,
     qrCodeBase64: raw?.qrCodeBase64 ?? raw?.qr_code_base64 ?? undefined,
-    qrCodeCopyPaste: raw?.qrCodeCopyPaste ?? raw?.qr_code_copy_paste ?? undefined,
+    qrCodeCopyPaste: raw?.qrCodeCopyPaste ?? raw?.qr_code_copy_paste ?? raw?.qrCode ?? raw?.qr_code ?? undefined,
   };
 }
 

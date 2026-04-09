@@ -111,6 +111,40 @@ type PaymentFlowState = {
   errorMessage?: string;
 };
 
+const PENDING_PAYMENT_STORAGE_KEY = "chincoa_pending_payment";
+
+function isRestorablePaymentState(state?: string) {
+  return state === "creating" || state === "pending";
+}
+
+function persistPendingPayment(flow: PaymentFlowState) {
+  if (!isRestorablePaymentState(flow.state)) {
+    sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
+    return;
+  }
+
+  sessionStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, JSON.stringify(flow));
+}
+
+function readPersistedPendingPayment(): PaymentFlowState | null {
+  const raw = sessionStorage.getItem(PENDING_PAYMENT_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as PaymentFlowState;
+    const reference = parsed.paymentId || parsed.paymentIntentId;
+    if (!reference || !isRestorablePaymentState(parsed.state)) {
+      sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
+    return null;
+  }
+}
+
 const Booking = () => {
   const { user, birthdayDiscount, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -144,6 +178,10 @@ const Booking = () => {
 
   useEffect(() => {
     latestPaymentFlowRef.current = paymentFlow;
+  }, [paymentFlow]);
+
+  useEffect(() => {
+    persistPendingPayment(paymentFlow);
   }, [paymentFlow]);
 
   useEffect(() => {
@@ -294,6 +332,30 @@ const Booking = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const restoredFlow = readPersistedPendingPayment();
+    if (!restoredFlow) return;
+
+    setPaymentFlow(restoredFlow);
+    toast({
+      title: "Pagamento em andamento recuperado",
+      description: "Retomamos a verificacao do seu PIX automaticamente.",
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isRestorablePaymentState(paymentFlow.state)) {
+      clearPaymentPolling();
+      return;
+    }
+
+    if (!getPaymentReference(paymentFlow)) {
+      return;
+    }
+
+    startPaymentPolling();
+  }, [paymentFlow.state, paymentFlow.paymentId, paymentFlow.paymentIntentId]);
+
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
   const birthdayPercent = birthdayDiscount.discountPercent && birthdayDiscount.discountPercent > 0 ? birthdayDiscount.discountPercent : 50;
   const birthdayEligibleToday = isBirthdayToday(user?.birthDate);
@@ -338,6 +400,7 @@ const Booking = () => {
       ...prev,
       state: status,
       providerStatus: providerStatus || prev.providerStatus,
+      errorMessage: status === "approved" ? undefined : prev.errorMessage,
       lastCheckedAt: new Date().toISOString(),
     }));
   };
@@ -353,6 +416,7 @@ const Booking = () => {
 
       if (result.status === "approved") {
         clearPaymentPolling();
+        sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
         toast({
           title: "Pagamento confirmado",
           description: "Seu pagamento foi aprovado com sucesso.",
@@ -363,6 +427,7 @@ const Booking = () => {
 
       if (result.status === "rejected" || result.status === "canceled") {
         clearPaymentPolling();
+        sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
         toast({
           title: result.status === "rejected" ? "Pagamento recusado" : "Pagamento cancelado",
           description: "Voce pode tentar novamente ou escolher pagamento presencial.",
@@ -450,6 +515,7 @@ const Booking = () => {
     try {
       const result = await cancelPayment(reference);
       clearPaymentPolling();
+      sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
       updatePaymentFromStatus(result.status, result.providerStatus);
       toast({ title: "Pagamento cancelado" });
     } catch (error) {
@@ -621,6 +687,7 @@ const Booking = () => {
         });
 
         if (pix.paymentStatus === "approved") {
+          sessionStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
           toast({
             title: "Pagamento aprovado",
             description: "Pagamento confirmado automaticamente.",
@@ -628,8 +695,6 @@ const Booking = () => {
           navigate("/meus-agendamentos");
           return;
         }
-
-        startPaymentPolling();
 
         toast({
           title: "PIX gerado",
@@ -1004,6 +1069,23 @@ const Booking = () => {
               Status: <span className="font-semibold text-foreground">{paymentFlow.state}</span>
               {paymentFlow.providerStatus ? ` • ${paymentFlow.providerStatus}` : ""}
             </p>
+            {paymentFlow.lastCheckedAt && (
+              <p className="text-xs text-muted-foreground">
+                Ultima verificacao: {new Date(paymentFlow.lastCheckedAt).toLocaleString("pt-BR")}
+              </p>
+            )}
+
+            {paymentFlow.state === "creating" && (
+              <p className="text-sm text-muted-foreground">
+                Estamos gerando o PIX e preparando o acompanhamento automatico do pagamento.
+              </p>
+            )}
+
+            {paymentFlow.state === "pending" && (
+              <p className="text-sm text-muted-foreground">
+                Seu agendamento ja foi criado. Pague o PIX abaixo para confirmar automaticamente.
+              </p>
+            )}
 
             {paymentFlow.qrCodeBase64 && (
               <div className="rounded-md border border-border p-3 bg-background w-fit">
