@@ -9,6 +9,32 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cancelMyAppointment, getFriendlyErrorMessage, getMyAppointments, type Appointment } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
+function parseLocalDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const localDate = new Date(year, month - 1, day);
+    if (!Number.isNaN(localDate.getTime())) return localDate;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function formatAppointmentDate(value: string) {
+  const date = parseLocalDate(value);
+  if (!date) return "Data invalida";
+  return format(date, "EEEE, dd/MM", { locale: ptBR });
+}
+
+function formatAppointmentTime(value: string) {
+  if (!value) return "--:--";
+  return value.slice(0, 5);
+}
+
 const MyAppointments = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -101,9 +127,9 @@ const MyAppointments = () => {
                 <div key={appointment.id} className="glass rounded-lg p-5 flex items-center justify-between">
                   <div>
                     <p className="font-heading font-semibold">
-                      {format(new Date(`${appointment.appointmentDate}T00:00:00`), "EEEE, dd/MM", { locale: ptBR })}
+                      {formatAppointmentDate(appointment.appointmentDate)}
                     </p>
-                    <p className="text-primary font-heading text-lg">{appointment.appointmentTime.slice(0, 5)}</p>
+                    <p className="text-primary font-heading text-lg">{formatAppointmentTime(appointment.appointmentTime)}</p>
                     <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${status.className}`}>
                       {status.label}
                     </span>

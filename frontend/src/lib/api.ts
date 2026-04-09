@@ -163,10 +163,30 @@ function normalizeTime(rawTime: string) {
   return trimmed;
 }
 
+function normalizeDateOnly(rawDate: unknown) {
+  if (rawDate === null || rawDate === undefined) return "";
+
+  const text = String(rawDate).trim();
+  if (!text) return "";
+
+  const yyyyMmDd = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (yyyyMmDd) {
+    return `${yyyyMmDd[1]}-${yyyyMmDd[2]}-${yyyyMmDd[3]}`;
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function normalizeAppointment(raw: any): Appointment {
   return {
     id: String(raw.id),
-    appointmentDate: String(raw.appointment_date ?? raw.appointmentDate ?? ""),
+    appointmentDate: normalizeDateOnly(raw.appointment_date ?? raw.appointmentDate ?? ""),
     appointmentTime: normalizeTime(String(raw.appointment_time ?? raw.appointmentTime ?? "")),
     status: (raw.status ?? "disponivel") as AppointmentStatus,
     price: Number(raw.price ?? 45),
