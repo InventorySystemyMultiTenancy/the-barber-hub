@@ -78,6 +78,7 @@ export interface Appointment {
   fullName?: string;
   email?: string;
   phone?: string;
+  birthDate?: string;
   discount?: {
     applied: boolean;
     type?: string;
@@ -361,6 +362,7 @@ function normalizeAppointment(raw: any): Appointment {
     fullName: raw.full_name ?? raw.fullName ?? raw.user?.full_name ?? raw.user?.fullName ?? undefined,
     email: raw.email ?? raw.user?.email ?? undefined,
     phone: raw.phone ?? raw.user?.phone ?? undefined,
+    birthDate: normalizeDateOnly(raw.birth_date ?? raw.birthDate ?? raw.user?.birth_date ?? raw.user?.birthDate ?? "") || undefined,
     discount: hasAnyDiscountSignal
       ? {
           applied: Boolean(discountRaw?.applied ?? discountAppliedByFlags ?? isBirthdayType ?? false),

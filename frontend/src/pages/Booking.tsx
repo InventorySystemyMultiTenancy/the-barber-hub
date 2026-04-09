@@ -61,6 +61,19 @@ function serviceMatchesDiscount(selectedKey?: string, discountServiceType?: stri
   return selected === discountType || selected.includes(discountType) || discountType.includes(selected);
 }
 
+function isBirthdayToday(dateText?: string) {
+  if (!dateText) return false;
+
+  const parts = dateText.slice(0, 10).split("-");
+  if (parts.length !== 3) return false;
+
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  const now = new Date();
+
+  return month === now.getMonth() + 1 && day === now.getDate();
+}
+
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
   console.group(`[BOOKING_DEBUG] ${step}`);
   Object.entries(payload).forEach(([key, value]) => {
@@ -238,8 +251,12 @@ const Booking = () => {
 
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
   const birthdayPercent = birthdayDiscount.discountPercent && birthdayDiscount.discountPercent > 0 ? birthdayDiscount.discountPercent : 50;
+  const birthdayEligibleToday = isBirthdayToday(user?.birthDate);
+  const hasBirthdayPromoGlobally = Boolean(
+    birthdayDiscount.active || ((birthdayDiscount.discountPercent ?? 0) > 0 && birthdayEligibleToday),
+  );
   const hasBirthdayDiscountForSelectedService =
-    Boolean(birthdayDiscount.active) &&
+    hasBirthdayPromoGlobally &&
     Boolean(selectedServiceKey) &&
     serviceMatchesDiscount(selectedServiceKey, birthdayDiscount.serviceType);
 
@@ -374,7 +391,17 @@ const Booking = () => {
           description: discount.message || `Preco original ${formatMoney(discount.basePrice || summary.servicePrice)} • preco final ${formatMoney(discount.finalPrice || summary.servicePrice)}`,
         });
       } else {
-        setLastDiscountSummary(null);
+        if (hasBirthdayDiscountForSelectedService && selectedService) {
+          setLastDiscountSummary({
+            applied: true,
+            message: "Desconto de aniversario aplicado no corte.",
+            basePrice: selectedService.price,
+            finalPrice: getDiscountedPrice(selectedService.price),
+            discountPercent: birthdayPercent,
+          });
+        } else {
+          setLastDiscountSummary(null);
+        }
       }
 
       const bookingWhatsAppMessage = [
@@ -522,7 +549,7 @@ const Booking = () => {
           Agendamentos disponiveis de {format(parseLocalDate(bookingWindowStart), "dd/MM")} a {format(parseLocalDate(bookingWindowEnd), "dd/MM")}. 
         </p>
 
-        {birthdayDiscount.active && (
+        {hasBirthdayPromoGlobally && (
           <div className="mb-6 glass rounded-lg border border-primary/40 bg-primary/10 p-4">
             <div className="inline-flex items-center gap-2 text-primary font-semibold">
               <Gift className="h-4 w-4" /> Promocao de aniversario ativa
@@ -577,7 +604,7 @@ const Booking = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {services.map((service) => {
                 const isSelected = selectedServiceKey === service.key;
-                const serviceHasBirthdayPromo = Boolean(birthdayDiscount.active) && serviceMatchesDiscount(service.key, birthdayDiscount.serviceType);
+                const serviceHasBirthdayPromo = hasBirthdayPromoGlobally && serviceMatchesDiscount(service.key, birthdayDiscount.serviceType);
                 const discountedPrice = getDiscountedPrice(service.price);
                 return (
                   <button

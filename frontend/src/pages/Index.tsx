@@ -7,9 +7,23 @@ import Header from "@/components/Header";
 import heroImage from "@/assets/hero-barbershop.jpg";
 import logoImage from "@/assets/Chincoa Cort's logo.png";
 
+function isBirthdayToday(dateText?: string) {
+  if (!dateText) return false;
+  const parts = dateText.slice(0, 10).split("-");
+  if (parts.length !== 3) return false;
+
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  const now = new Date();
+
+  return month === now.getMonth() + 1 && day === now.getDate();
+}
+
 const Index = () => {
   const { user, birthdayDiscount, refreshSession } = useAuth();
-  const hasBirthdayPromo = Boolean(birthdayDiscount.active || (birthdayDiscount.discountPercent ?? 0) > 0);
+  const hasBirthdayPromo = Boolean(
+    birthdayDiscount.active || ((birthdayDiscount.discountPercent ?? 0) > 0 && isBirthdayToday(user?.birthDate)),
+  );
 
   useEffect(() => {
     if (user) {

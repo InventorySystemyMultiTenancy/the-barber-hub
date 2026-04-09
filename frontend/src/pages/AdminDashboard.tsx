@@ -64,6 +64,29 @@ function getDiscountPriceDetails(input: { base?: number; final?: number; percent
   return { base: final, final };
 }
 
+function normalizeServiceToken(value?: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function isBirthdayOnAppointmentDate(birthDate?: string, appointmentDate?: string) {
+  if (!birthDate || !appointmentDate) return false;
+
+  const birth = birthDate.slice(0, 10).split("-");
+  const appt = appointmentDate.slice(0, 10).split("-");
+  if (birth.length !== 3 || appt.length !== 3) return false;
+
+  return birth[1] === appt[1] && birth[2] === appt[2];
+}
+
+function hasBirthdayDiscountInferred(appointment: Appointment) {
+  const service = normalizeServiceToken(appointment.serviceType);
+  return isBirthdayOnAppointmentDate(appointment.birthDate, appointment.appointmentDate) && service === "corte";
+}
+
 function getCurrentPeriod() {
   const now = new Date();
   return {
@@ -547,6 +570,16 @@ const AdminDashboard = () => {
                       : appointment.status === "agendado"
                         ? "bg-primary/20 text-primary"
                         : "bg-muted text-muted-foreground";
+                  const birthdayDiscountInferred = !appointment.discount?.applied && hasBirthdayDiscountInferred(appointment);
+                  const shouldShowBirthdayBadge = Boolean(appointment.discount?.applied || birthdayDiscountInferred);
+                  const badgePercent = appointment.discount?.discountPercent || (birthdayDiscountInferred ? 50 : undefined);
+                  const prices = getDiscountPriceDetails({
+                    base: appointment.discount?.basePrice,
+                    final: appointment.discount?.finalPrice,
+                    percent: appointment.discount?.discountPercent,
+                    fallback: appointment.price ?? 0,
+                  });
+                  const inferredFinalPrice = birthdayDiscountInferred ? (appointment.price ?? 0) * 0.5 : prices.final;
 
                   return (
                     <div key={appointment.id} className="glass rounded-lg p-4">
@@ -555,9 +588,9 @@ const AdminDashboard = () => {
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="font-heading font-semibold text-lg">{appointment.appointmentTime.slice(0, 5)}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass}`}>{appointment.status}</span>
-                            {appointment.discount?.applied && (
+                            {shouldShowBirthdayBadge && (
                               <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-                                ANIVERSARIO {appointment.discount.discountPercent ? `${appointment.discount.discountPercent}%` : "50%"}
+                                ANIVERSARIO {badgePercent ? `${badgePercent}%` : "50%"}
                               </span>
                             )}
                           </div>
@@ -574,30 +607,22 @@ const AdminDashboard = () => {
                           </div>
                           <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
                           <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
-                          {appointment.discount?.applied && (
-                            (() => {
-                              const prices = getDiscountPriceDetails({
-                                base: appointment.discount?.basePrice,
-                                final: appointment.discount?.finalPrice,
-                                percent: appointment.discount?.discountPercent,
-                                fallback: appointment.price ?? 0,
-                              });
-
-                              return (
+                          {shouldShowBirthdayBadge && (
                             <div className="mt-1 rounded-md border border-primary/40 bg-primary/10 p-2">
                               <p className="text-xs font-semibold text-primary">Desconto de aniversario aplicado</p>
-                              {appointment.discount.message && (
+                              {appointment.discount?.message && (
                                 <p className="text-xs text-muted-foreground">{appointment.discount.message}</p>
+                              )}
+                              {birthdayDiscountInferred && !appointment.discount?.applied && (
+                                <p className="text-xs text-muted-foreground">Desconto inferido pela data de aniversario e servico corte.</p>
                               )}
                               <p className="text-xs text-foreground">
                                 Original: {formatMoney(prices.base)}
                               </p>
                               <p className="text-xs text-foreground">
-                                Final: {formatMoney(prices.final)}
+                                Final: {formatMoney(inferredFinalPrice)}
                               </p>
                             </div>
-                              );
-                            })()
                           )}
                           <p className="text-xs text-muted-foreground">
                             {appointment.phone || "-"} · {appointment.email || "-"}
