@@ -96,6 +96,25 @@ export interface AppointmentService {
   price: number;
 }
 
+export interface Barber {
+  id: string;
+  fullName: string;
+  imageUrl?: string | null;
+  isActive: boolean;
+}
+
+export interface CreateBarberPayload {
+  full_name: string;
+  image_url?: string | null;
+  is_active?: boolean;
+}
+
+export interface UpdateBarberPayload {
+  full_name?: string;
+  image_url?: string | null;
+  is_active?: boolean;
+}
+
 export interface FinancialReportPeriod {
   startDate: string;
   endDate: string;
@@ -412,6 +431,15 @@ function normalizeAppointment(raw: any): Appointment {
             undefined,
         }
       : undefined,
+  };
+}
+
+function normalizeBarber(raw: any): Barber {
+  return {
+    id: String(raw?.id ?? raw?.barber_id ?? raw?.barberId ?? ""),
+    fullName: String(raw?.full_name ?? raw?.fullName ?? raw?.name ?? ""),
+    imageUrl: raw?.image_url ?? raw?.imageUrl ?? raw?.avatar_url ?? raw?.avatarUrl ?? null,
+    isActive: Boolean(raw?.is_active ?? raw?.isActive ?? true),
   };
 }
 
@@ -788,8 +816,13 @@ export async function me(): Promise<SessionInfo> {
   };
 }
 
-export async function getSlotsByDate(date: string): Promise<SlotsByDateResponse> {
-  const data = await apiRequest<any>(`/api/appointments/slots?date=${encodeURIComponent(date)}&_t=${Date.now()}`, { method: "GET" }, true);
+export async function getSlotsByDate(date: string, barberId?: string): Promise<SlotsByDateResponse> {
+  const query = new URLSearchParams({ date, _t: String(Date.now()) });
+  if (barberId) {
+    query.set("barber_id", barberId);
+  }
+
+  const data = await apiRequest<any>(`/api/appointments/slots?${query.toString()}`, { method: "GET" }, true);
   const slots = extractCollection(data, ["slots", "appointmentSlots", "items"]);
   const meta = normalizeSlotsMeta(data?.meta ?? data);
 
@@ -808,15 +841,42 @@ export async function getAppointmentServices(): Promise<AppointmentService[]> {
     .filter((service) => service.key.length > 0 && service.label.length > 0);
 }
 
+export async function getBarbers(activeOnly = false): Promise<Barber[]> {
+  const endpoint = activeOnly ? "/api/barbers/active" : "/api/barbers";
+
+  try {
+    const data = await apiRequest<any>(`${endpoint}?_t=${Date.now()}`, { method: "GET" }, true);
+    const barbers = extractCollection(data, ["barbers", "items"]);
+    return barbers.map(normalizeBarber).filter((barber) => barber.id.length > 0 && barber.fullName.length > 0);
+  } catch (error) {
+    if (activeOnly && error instanceof ApiClientError && error.status === 404) {
+      const fallback = await apiRequest<any>(`/api/barbers?_t=${Date.now()}`, { method: "GET" }, true);
+      const barbers = extractCollection(fallback, ["barbers", "items"]);
+      return barbers
+        .map(normalizeBarber)
+        .filter((barber) => barber.id.length > 0 && barber.fullName.length > 0 && barber.isActive);
+    }
+
+    throw error;
+  }
+}
+
 export async function getMyAppointments(): Promise<Appointment[]> {
   const data = await apiRequest<any>("/api/appointments/me", { method: "GET" }, true);
   const appointments = extractCollection(data, ["appointments", "items"]);
   return appointments.map(normalizeAppointment);
 }
 
-export async function createAppointment(input: { date: string; time: string; serviceType: string; paymentMethod?: string }): Promise<Appointment> {
+export async function createAppointment(input: {
+  date: string;
+  time: string;
+  serviceType: string;
+  barberId: string;
+  paymentMethod?: string;
+}): Promise<Appointment> {
   const time = normalizeTime(input.time);
   const serviceType = String(input.serviceType || "").trim();
+  const barberId = String(input.barberId || "").trim();
 
   const data = await apiRequest<any>(
     "/api/appointments",
@@ -826,10 +886,12 @@ export async function createAppointment(input: { date: string; time: string; ser
         appointment_date: input.date,
         appointment_time: time,
         service_type: serviceType,
+        barber_id: barberId,
         payment_method: input.paymentMethod || undefined,
         appointmentDate: input.date,
         appointmentTime: time,
         serviceType,
+        barberId,
         paymentMethod: input.paymentMethod || undefined,
       }),
     },
@@ -847,6 +909,58 @@ export async function getAdminAppointmentsByDate(date: string): Promise<Appointm
   const data = await apiRequest<any>(`/api/admin/appointments?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
   const appointments = extractCollection(data, ["appointments", "items"]);
   return appointments.map(normalizeAppointment);
+}
+
+export async function getAdminBarbers(): Promise<Barber[]> {
+  const data = await apiRequest<any>("/api/admin/barbers", { method: "GET" }, true);
+  const barbers = extractCollection(data, ["barbers", "items"]);
+  return barbers.map(normalizeBarber).filter((barber) => barber.id.length > 0 && barber.fullName.length > 0);
+}
+
+export async function createAdminBarber(payload: CreateBarberPayload): Promise<Barber> {
+  const data = await apiRequest<any>(
+    "/api/admin/barbers",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeBarber(data?.barber ?? data);
+}
+
+export async function updateAdminBarber(id: string, payload: UpdateBarberPayload): Promise<Barber> {
+  const data = await apiRequest<any>(
+    `/api/admin/barbers/${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeBarber(data?.barber ?? data);
+}
+
+export async function deactivateAdminBarber(id: string): Promise<void> {
+  try {
+    await apiRequest<unknown>(`/api/admin/barbers/${id}`, { method: "DELETE" }, true);
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) {
+      await apiRequest<unknown>(
+        `/api/admin/barbers/${id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: false }),
+        },
+        true,
+      );
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function updateAdminAppointmentStatus(id: string, status: AppointmentStatus) {

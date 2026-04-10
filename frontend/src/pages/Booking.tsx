@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
+  type Barber,
   cancelPayment,
   createAppointment,
   createPixPayment,
+  getBarbers,
   getAppointmentServices,
   getFriendlyErrorMessage,
   getPaymentStatus,
@@ -128,6 +130,10 @@ const Booking = () => {
   const [services, setServices] = useState<AppointmentService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [barbersLoading, setBarbersLoading] = useState(false);
+  const [barbersError, setBarbersError] = useState<string | null>(null);
+  const [selectedBarberId, setSelectedBarberId] = useState("");
   const [paymentMethodChoice, setPaymentMethodChoice] = useState<"presencial" | "online">("presencial");
   const [lastDiscountSummary, setLastDiscountSummary] = useState<{
     applied: boolean;
@@ -183,6 +189,11 @@ const Booking = () => {
     setSlotsLoading(true);
     setSlotsError(null);
     try {
+      if (!selectedBarberId) {
+        setSlots([]);
+        return;
+      }
+
       if (!isDateWithinWindow(date, bookingWindowStart, bookingWindowEnd)) {
         setSlots([]);
         setSelectedTime("");
@@ -190,7 +201,7 @@ const Booking = () => {
         return;
       }
 
-      const response = await getSlotsByDate(date);
+      const response = await getSlotsByDate(date, selectedBarberId);
       setSlots(mergeSlotsWithConflicts(date, response.slots, extraBlockedTimes));
       setSlotsMeta(response.meta || {});
 
@@ -270,6 +281,38 @@ const Booking = () => {
     }
   };
 
+  const loadBarbers = async () => {
+    setBarbersLoading(true);
+    setBarbersError(null);
+
+    try {
+      const data = await getBarbers(true);
+      setBarbers(data);
+
+      const hasSelected = data.some((barber) => barber.id === selectedBarberId && barber.isActive);
+      if (!hasSelected) {
+        const firstActive = data.find((barber) => barber.isActive);
+        setSelectedBarberId(firstActive?.id || "");
+      }
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        toast({
+          title: "Sessao expirada",
+          description: "Faça login novamente para continuar.",
+          variant: "destructive",
+        });
+        navigate("/login");
+        return;
+      }
+
+      setBarbers([]);
+      setSelectedBarberId("");
+      setBarbersError(getFriendlyErrorMessage(error));
+    } finally {
+      setBarbersLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!selectedDate || !user) return;
 
@@ -280,12 +323,18 @@ const Booking = () => {
 
     setSelectedTime("");
     setLastDiscountSummary(null);
+    if (!selectedBarberId) {
+      setSlots([]);
+      return;
+    }
+
     loadSlots(selectedDate);
-  }, [selectedDate, user, bookingWindowStart, bookingWindowEnd]);
+  }, [selectedDate, user, bookingWindowStart, bookingWindowEnd, selectedBarberId]);
 
   useEffect(() => {
     if (!user) return;
     loadServices();
+    loadBarbers();
   }, [user]);
 
   useEffect(() => {
@@ -295,6 +344,7 @@ const Booking = () => {
   }, []);
 
   const selectedService = services.find((service) => service.key === selectedServiceKey) || null;
+  const selectedBarber = barbers.find((barber) => barber.id === selectedBarberId) || null;
   const birthdayPercent = birthdayDiscount.discountPercent && birthdayDiscount.discountPercent > 0 ? birthdayDiscount.discountPercent : 50;
   const birthdayEligibleToday = isBirthdayToday(user?.birthDate);
   const hasBirthdayPromoGlobally = Boolean(
@@ -467,6 +517,15 @@ const Booking = () => {
   const handleBook = async () => {
     if (!selectedDate || !selectedTime) return;
 
+    if (!selectedBarberId) {
+      toast({
+        title: "Selecione um barbeiro",
+        description: "Escolha um barbeiro antes de confirmar o agendamento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!isDateWithinWindow(selectedDate, bookingWindowStart, bookingWindowEnd)) {
       toast({
         title: "Data fora da janela de agendamento",
@@ -495,13 +554,13 @@ const Booking = () => {
 
     setSubmitting(true);
     try {
-      const latestSlots = await getSlotsByDate(selectedDate);
-      const mergedLatestSlots = mergeSlotsWithConflicts(selectedDate, latestSlots.slots);
+      const latestByBarber = await getSlotsByDate(selectedDate, selectedBarberId);
+      const mergedLatestSlots = mergeSlotsWithConflicts(selectedDate, latestByBarber.slots);
       setSlots(mergedLatestSlots);
-      setSlotsMeta(latestSlots.meta || {});
+      setSlotsMeta(latestByBarber.meta || {});
 
-      const nextWindowStart = latestSlots.meta?.bookingWindowStart || bookingWindowStart;
-      const nextWindowEnd = latestSlots.meta?.bookingWindowEnd || bookingWindowEnd;
+      const nextWindowStart = latestByBarber.meta?.bookingWindowStart || bookingWindowStart;
+      const nextWindowEnd = latestByBarber.meta?.bookingWindowEnd || bookingWindowEnd;
       setBookingWindowStart(nextWindowStart);
       setBookingWindowEnd(nextWindowEnd);
 
@@ -544,6 +603,7 @@ const Booking = () => {
         date: selectedDate,
         time: selectedTime,
         serviceType: selectedServiceKey,
+        barberId: selectedBarberId,
         paymentMethod: paymentMethodChoice,
       });
 
@@ -797,34 +857,6 @@ const Booking = () => {
           </div>
         )}
 
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <CalendarDays className="h-5 w-5 text-primary" />
-            <h2 className="font-heading text-lg font-semibold">Escolha o dia</h2>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {availableDates.map((d) => {
-              const dateStr = format(d, "yyyy-MM-dd");
-              const isSelected = selectedDate === dateStr;
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => setSelectedDate(dateStr)}
-                  className={`rounded-lg p-3 text-center transition-all border ${
-                    isSelected
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card hover:border-primary/30"
-                  }`}
-                >
-                  <div className="font-heading text-sm font-semibold uppercase">{format(d, "EEE", { locale: ptBR })}</div>
-                  <div className="text-lg font-bold">{format(d, "dd")}</div>
-                  <div className="text-xs text-muted-foreground">{format(d, "MMM", { locale: ptBR })}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         <div className="mb-8 animate-fade-in">
           <div className="flex items-center gap-2 mb-4">
             <CheckCircle2 className="h-5 w-5 text-primary" />
@@ -869,11 +901,92 @@ const Booking = () => {
 
         <div className="mb-8 animate-fade-in">
           <div className="flex items-center gap-2 mb-4">
+            <CheckCircle2 className="h-5 w-5 text-primary" />
+            <h2 className="font-heading text-lg font-semibold">Escolha o barbeiro</h2>
+          </div>
+
+          {barbersLoading ? (
+            <p className="text-muted-foreground">Carregando barbeiros...</p>
+          ) : barbersError ? (
+            <div className="glass rounded-lg p-5 text-center text-muted-foreground space-y-3">
+              <p>{barbersError}</p>
+              <Button variant="outline" onClick={loadBarbers}>Tentar novamente</Button>
+            </div>
+          ) : barbers.length === 0 ? (
+            <div className="glass rounded-lg p-5 text-center text-muted-foreground">Nenhum barbeiro cadastrado.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {barbers.map((barber) => {
+                const isSelected = selectedBarberId === barber.id;
+
+                return (
+                  <button
+                    key={barber.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBarberId(barber.id);
+                      setSelectedTime("");
+                    }}
+                    className={`rounded-lg p-4 text-left transition-all border ${
+                      isSelected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-card hover:border-primary/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {barber.imageUrl ? (
+                        <img src={barber.imageUrl} alt={barber.fullName} className="h-12 w-12 rounded-full object-cover border border-border" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full border border-border bg-muted flex items-center justify-center text-xs">Sem foto</div>
+                      )}
+                      <div>
+                        <p className="font-heading font-semibold">{barber.fullName}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            <h2 className="font-heading text-lg font-semibold">Escolha o dia</h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {availableDates.map((d) => {
+              const dateStr = format(d, "yyyy-MM-dd");
+              const isSelected = selectedDate === dateStr;
+              return (
+                <button
+                  key={dateStr}
+                  onClick={() => setSelectedDate(dateStr)}
+                  className={`rounded-lg p-3 text-center transition-all border ${
+                    isSelected
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card hover:border-primary/30"
+                  }`}
+                >
+                  <div className="font-heading text-sm font-semibold uppercase">{format(d, "EEE", { locale: ptBR })}</div>
+                  <div className="text-lg font-bold">{format(d, "dd")}</div>
+                  <div className="text-xs text-muted-foreground">{format(d, "MMM", { locale: ptBR })}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mb-8 animate-fade-in">
+          <div className="flex items-center gap-2 mb-4">
             <Clock className="h-5 w-5 text-primary" />
             <h2 className="font-heading text-lg font-semibold">Horarios disponiveis</h2>
           </div>
 
-          {slotsLoading ? (
+          {!selectedBarberId ? (
+            <div className="glass rounded-lg p-5 text-center text-muted-foreground">Selecione um barbeiro.</div>
+          ) : slotsLoading ? (
             <p className="text-muted-foreground">Carregando horarios...</p>
           ) : slotsError ? (
             <div className="glass rounded-lg p-5 text-center text-muted-foreground space-y-3">
@@ -929,6 +1042,9 @@ const Booking = () => {
                   {format(parseLocalDate(selectedDate), "EEEE, dd 'de' MMMM", { locale: ptBR })}
                 </p>
                 <p className="text-primary font-heading text-lg">{selectedTime.slice(0, 5)}</p>
+                {selectedBarber && (
+                  <p className="text-xs text-muted-foreground">Barbeiro: {selectedBarber.fullName}</p>
+                )}
                 {selectedService && (
                   <div className="text-sm text-muted-foreground">
                     <p>{selectedService.label}</p>
@@ -989,7 +1105,7 @@ const Booking = () => {
             </div>
             <Button
               onClick={handleBook}
-              disabled={submitting || !selectedServiceKey || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
+              disabled={submitting || !selectedServiceKey || !selectedBarberId || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
               className="font-heading w-full sm:w-auto"
             >
               {submitting ? "Agendando..." : paymentFlow.state === "creating" ? "Gerando pagamento..." : "CONFIRMAR AGENDAMENTO"}

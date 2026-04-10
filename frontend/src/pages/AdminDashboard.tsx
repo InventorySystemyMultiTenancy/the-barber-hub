@@ -22,9 +22,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
+  type Barber,
+  createAdminBarber,
   getAppointmentServices,
+  getAdminBarbers,
   createAdminFixedExpense,
   createAdminVariableExpense,
+  deactivateAdminBarber,
   deleteAdminAppointment,
   getAdminFinancialReport,
   getAdminFixedExpenses,
@@ -32,6 +36,7 @@ import {
   getAdminVariableExpenses,
   getFriendlyErrorMessage,
   updateAdminAppointmentStatus,
+  updateAdminBarber,
   type Appointment,
   type AppointmentStatus,
   type FinancialReport,
@@ -175,6 +180,14 @@ const AdminDashboard = () => {
   const [variableExpenseDate, setVariableExpenseDate] = useState(currentPeriod.endDate);
   const [variableNotes, setVariableNotes] = useState("");
 
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [barbersLoading, setBarbersLoading] = useState(false);
+  const [barbersError, setBarbersError] = useState<string | null>(null);
+  const [barberSubmitting, setBarberSubmitting] = useState(false);
+  const [barberName, setBarberName] = useState("");
+  const [barberImageUrl, setBarberImageUrl] = useState("");
+  const [editingBarberId, setEditingBarberId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       navigate("/");
@@ -227,6 +240,24 @@ const AdminDashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAdminBarbers = async () => {
+    setBarbersLoading(true);
+    setBarbersError(null);
+
+    try {
+      const data = await getAdminBarbers();
+      setBarbers(data);
+    } catch (error) {
+      if (handleAdminApiError(error, { silentToast: true })) {
+        setBarbersError("Sem permissao para acessar barbeiros.");
+      } else {
+        setBarbersError(getFriendlyErrorMessage(error));
+      }
+    } finally {
+      setBarbersLoading(false);
     }
   };
 
@@ -313,8 +344,114 @@ const AdminDashboard = () => {
     if (isAdmin) {
       loadServicesCatalog();
       loadAppointments();
+      loadAdminBarbers();
     }
   }, [isAdmin, filterDate]);
+
+  const handleImageUpload = (file: File | null) => {
+    if (!file) return;
+
+    const maxSizeBytes = 2 * 1024 * 1024;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Arquivo invalido",
+        description: "Selecione uma imagem valida.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > maxSizeBytes) {
+      toast({
+        title: "Imagem muito grande",
+        description: "A imagem deve ter no maximo 2MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      if (dataUrl) {
+        setBarberImageUrl(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const resetBarberForm = () => {
+    setBarberName("");
+    setBarberImageUrl("");
+    setEditingBarberId(null);
+  };
+
+  const handleSubmitBarber = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!barberName.trim()) {
+      toast({
+        title: "Nome obrigatorio",
+        description: "Informe o nome do barbeiro.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setBarberSubmitting(true);
+    try {
+      if (editingBarberId) {
+        await updateAdminBarber(editingBarberId, {
+          full_name: barberName.trim(),
+          image_url: barberImageUrl.trim() || null,
+        });
+        toast({ title: "Barbeiro atualizado" });
+      } else {
+        await createAdminBarber({
+          full_name: barberName.trim(),
+          image_url: barberImageUrl.trim() || null,
+        });
+        toast({ title: "Barbeiro cadastrado" });
+      }
+
+      resetBarberForm();
+      await loadAdminBarbers();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao salvar barbeiro",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setBarberSubmitting(false);
+    }
+  };
+
+  const startEditBarber = (barber: Barber) => {
+    setEditingBarberId(barber.id);
+    setBarberName(barber.fullName);
+    setBarberImageUrl(barber.imageUrl || "");
+  };
+
+  const handleDeactivateBarber = async (id: string) => {
+    const confirmed = window.confirm("Deseja inativar este barbeiro?");
+    if (!confirmed) return;
+
+    try {
+      await deactivateAdminBarber(id);
+      toast({ title: "Barbeiro inativado" });
+      await loadAdminBarbers();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao inativar barbeiro",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     if (isAdmin) {
@@ -556,11 +693,12 @@ const AdminDashboard = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full max-w-sm grid grid-cols-2 mb-8">
+          <TabsList className="w-full max-w-xl grid grid-cols-3 mb-8">
             <TabsTrigger value="agenda">Agenda</TabsTrigger>
             <TabsTrigger value="relatorios" className="gap-2">
               <BarChart3 className="h-4 w-4" /> Relatorios
             </TabsTrigger>
+            <TabsTrigger value="barbeiros">Barbeiros</TabsTrigger>
           </TabsList>
 
           <TabsContent value="agenda" className="space-y-6">
@@ -718,6 +856,90 @@ const AdminDashboard = () => {
                 })}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="barbeiros" className="space-y-6">
+            <section className="glass rounded-lg p-4 md:p-5">
+              <h2 className="font-heading text-xl font-semibold mb-4">Gerenciar barbeiros</h2>
+
+              <form onSubmit={handleSubmitBarber} className="space-y-3 mb-5">
+                <Input
+                  placeholder="Nome do barbeiro"
+                  value={barberName}
+                  onChange={(event) => setBarberName(event.target.value)}
+                  required
+                />
+
+                <Input
+                  placeholder="URL da imagem (opcional)"
+                  value={barberImageUrl}
+                  onChange={(event) => setBarberImageUrl(event.target.value)}
+                />
+
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Ou envie uma imagem</label>
+                  <Input type="file" accept="image/*" onChange={(event) => handleImageUpload(event.target.files?.[0] || null)} />
+                </div>
+
+                {barberImageUrl && (
+                  <img src={barberImageUrl} alt="Preview do barbeiro" className="h-20 w-20 rounded-full object-cover border border-border" />
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button type="submit" disabled={barberSubmitting}>
+                    {barberSubmitting ? "Salvando..." : editingBarberId ? "Atualizar barbeiro" : "Cadastrar barbeiro"}
+                  </Button>
+                  {editingBarberId && (
+                    <Button type="button" variant="outline" onClick={resetBarberForm}>
+                      Cancelar edicao
+                    </Button>
+                  )}
+                </div>
+              </form>
+
+              {barbersError ? (
+                <div className="rounded-md border border-destructive/40 p-3">
+                  <p className="text-destructive font-semibold">Erro ao carregar barbeiros</p>
+                  <p className="text-sm text-muted-foreground mt-1">{barbersError}</p>
+                  <Button variant="outline" className="mt-3" onClick={loadAdminBarbers}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              ) : barbersLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando barbeiros...</p>
+              ) : barbers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum barbeiro cadastrado.</p>
+              ) : (
+                <div className="space-y-2">
+                  {barbers.map((barber) => (
+                    <div key={barber.id} className="rounded-md border border-border/70 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        {barber.imageUrl ? (
+                          <img src={barber.imageUrl} alt={barber.fullName} className="h-12 w-12 rounded-full object-cover border border-border" />
+                        ) : (
+                          <div className="h-12 w-12 rounded-full border border-border bg-muted flex items-center justify-center text-xs">Sem foto</div>
+                        )}
+                        <div>
+                          <p className="font-medium">{barber.fullName}</p>
+                          <p className="text-xs text-muted-foreground">{barber.isActive ? "Ativo" : "Inativo"}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button type="button" variant="outline" onClick={() => startEditBarber(barber)}>
+                          Editar
+                        </Button>
+                        {barber.isActive && (
+                          <Button type="button" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => handleDeactivateBarber(barber.id)}>
+                            Inativar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </TabsContent>
 
           <TabsContent value="relatorios" className="space-y-6">
