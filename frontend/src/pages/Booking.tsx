@@ -160,7 +160,6 @@ const Booking = () => {
   const [bookingWindowEnd, setBookingWindowEnd] = useState(defaultWindow.end);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [conflictedTimesByDate, setConflictedTimesByDate] = useState<Record<string, string[]>>({});
   const [services, setServices] = useState<AppointmentService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [selectedServiceKey, setSelectedServiceKey] = useState("");
@@ -209,26 +208,21 @@ const Booking = () => {
     [bookingWindowStart, bookingWindowEnd],
   );
 
-  const mergeSlotsWithConflicts = (date: string, incomingSlots: AppointmentSlot[], extraBlockedTimes: string[] = []) => {
-    const blockedTimes = new Set([...(conflictedTimesByDate[date] || []), ...extraBlockedTimes]);
-
-    return incomingSlots.map((slot) => {
-      if (!blockedTimes.has(slot.time) || slot.status !== "disponivel") return slot;
-
-      return {
-        ...slot,
-        status: "agendado" as const,
-        reason: slot.reason || "Reservado (confirmado no banco)",
-      };
-    });
-  };
-
-  const loadSlots = async (date: string, extraBlockedTimes: string[] = []) => {
+  const loadSlots = async (date: string) => {
     setSlotsLoading(true);
     setSlotsError(null);
     try {
+      if (!date) {
+        setSlots([]);
+        setSlotsMeta({});
+        setSelectedTime("");
+        return;
+      }
+
       if (!selectedBarberId) {
         setSlots([]);
+        setSlotsMeta({});
+        setSelectedTime("");
         return;
       }
 
@@ -240,7 +234,7 @@ const Booking = () => {
       }
 
       const response = await getSlotsByDate(date, selectedBarberId);
-      setSlots(mergeSlotsWithConflicts(date, response.slots, extraBlockedTimes));
+      setSlots(response.slots);
       setSlotsMeta(response.meta || {});
 
       const nextWindowStart = response.meta?.bookingWindowStart || bookingWindowStart;
@@ -273,6 +267,7 @@ const Booking = () => {
       }
 
       setSlots([]);
+      setSlotsMeta({});
       toast({
         title: "Falha ao carregar horarios",
         description: error instanceof ApiClientError && error.status === 500
@@ -363,6 +358,7 @@ const Booking = () => {
     setLastDiscountSummary(null);
     if (!selectedBarberId) {
       setSlots([]);
+      setSlotsMeta({});
       return;
     }
 
@@ -581,12 +577,10 @@ const Booking = () => {
   };
 
   const handleBook = async () => {
-    if (!selectedDate || !selectedTime) return;
-
-    if (!selectedBarberId) {
+    if (!selectedServiceKey || !selectedBarberId || !selectedDate || !selectedTime) {
       toast({
-        title: "Selecione um barbeiro",
-        description: "Escolha um barbeiro antes de confirmar o agendamento.",
+        title: "Preencha os campos obrigatorios",
+        description: "Selecione servico, barbeiro, data e horario para continuar.",
         variant: "destructive",
       });
       return;
@@ -601,18 +595,11 @@ const Booking = () => {
       return;
     }
 
-    if (!selectedServiceKey) {
-      toast({
-        title: "Selecione um servico",
-        description: "Escolha o servico antes de confirmar o agendamento.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     logBookingDebug("BOOK_CLICKED", {
       selectedDate,
       selectedTime,
+      selectedBarberId,
+      selectedServiceType: selectedServiceKey,
       bookingWindowStart,
       bookingWindowEnd,
       timezone: slotsMeta.timezone,
@@ -621,8 +608,7 @@ const Booking = () => {
     setSubmitting(true);
     try {
       const latestByBarber = await getSlotsByDate(selectedDate, selectedBarberId);
-      const mergedLatestSlots = mergeSlotsWithConflicts(selectedDate, latestByBarber.slots);
-      setSlots(mergedLatestSlots);
+      setSlots(latestByBarber.slots);
       setSlotsMeta(latestByBarber.meta || {});
 
       const nextWindowStart = latestByBarber.meta?.bookingWindowStart || bookingWindowStart;
@@ -644,11 +630,12 @@ const Booking = () => {
       logBookingDebug("PREFLIGHT_SLOTS", {
         selectedDate,
         selectedTime,
-        totalSlots: mergedLatestSlots.length,
-        selectedSlot: mergedLatestSlots.find((slot) => slot.time === selectedTime) || null,
+        selectedBarberId,
+        totalSlots: latestByBarber.slots.length,
+        selectedSlot: latestByBarber.slots.find((slot) => slot.time === selectedTime) || null,
       });
 
-      const selectedSlot = mergedLatestSlots.find((slot) => slot.time === selectedTime);
+      const selectedSlot = latestByBarber.slots.find((slot) => slot.time === selectedTime);
       if (!selectedSlot || selectedSlot.status !== "disponivel") {
         setSelectedTime("");
         toast({
@@ -663,6 +650,7 @@ const Booking = () => {
         appointment_date: selectedDate,
         appointment_time: selectedTime,
         service_type: selectedServiceKey,
+        barber_id: selectedBarberId,
       });
 
       const createdAppointment = await createAppointment({
@@ -812,28 +800,12 @@ const Booking = () => {
       }
 
       if (error instanceof ApiClientError && (error.status === 409 || error.code === "SLOT_ALREADY_BOOKED")) {
-        const isDbUniqueConflict =
-          !!error.details && typeof error.details === "object" && (error.details as Record<string, unknown>).source === "db_unique_index";
-
-        if (isDbUniqueConflict) {
-          setConflictedTimesByDate((prev) => {
-            const current = prev[selectedDate] || [];
-            if (current.includes(selectedTime)) return prev;
-            return {
-              ...prev,
-              [selectedDate]: [...current, selectedTime],
-            };
-          });
-        }
-
         setSelectedTime("");
-        await loadSlots(selectedDate, isDbUniqueConflict ? [selectedTime] : []);
+        await loadSlots(selectedDate);
 
         toast({
-          title: "Horario atualizado",
-          description: isDbUniqueConflict
-            ? "Esse horario constava como disponivel, mas ja estava reservado no banco. Atualizamos a lista para voce escolher outro."
-            : "Esse horario nao pode mais ser reservado. Escolha outro disponivel.",
+          title: "Horario indisponivel",
+          description: "Este horario acabou de ser reservado. Escolha outro horario.",
           variant: "destructive",
         });
         return;
@@ -991,6 +963,8 @@ const Booking = () => {
                     onClick={() => {
                       setSelectedBarberId(barber.id);
                       setSelectedTime("");
+                      setSlots([]);
+                      setSlotsMeta({});
                     }}
                     className={`rounded-lg p-4 text-left transition-all border ${
                       isSelected
@@ -1027,7 +1001,12 @@ const Booking = () => {
               return (
                 <button
                   key={dateStr}
-                  onClick={() => setSelectedDate(dateStr)}
+                  onClick={() => {
+                    setSelectedDate(dateStr);
+                    setSelectedTime("");
+                    setSlots([]);
+                    setSlotsMeta({});
+                  }}
                   className={`rounded-lg p-3 text-center transition-all border ${
                     isSelected
                       ? "border-primary bg-primary/10 text-primary"
@@ -1170,7 +1149,7 @@ const Booking = () => {
             </div>
             <Button
               onClick={handleBook}
-              disabled={submitting || !selectedServiceKey || !selectedBarberId || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
+              disabled={submitting || !selectedServiceKey || !selectedBarberId || !selectedDate || !selectedTime || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
               className="font-heading w-full sm:w-auto"
             >
               {submitting ? "Agendando..." : paymentFlow.state === "creating" ? "Gerando pagamento..." : "CONFIRMAR AGENDAMENTO"}

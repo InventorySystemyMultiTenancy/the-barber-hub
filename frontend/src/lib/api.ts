@@ -817,11 +817,15 @@ export async function me(): Promise<SessionInfo> {
   };
 }
 
-export async function getSlotsByDate(date: string, barberId?: string): Promise<SlotsByDateResponse> {
-  const query = new URLSearchParams({ date, _t: String(Date.now()) });
-  if (barberId) {
-    query.set("barber_id", barberId);
+export async function getSlotsByDate(date: string, barberId: string): Promise<SlotsByDateResponse> {
+  const safeDate = String(date || "").trim();
+  const safeBarberId = String(barberId || "").trim();
+  if (!safeDate || !safeBarberId) {
+    throw new ApiClientError("Data e barbeiro sao obrigatorios para consultar horarios.", 400, "VALIDATION_ERROR");
   }
+
+  const query = new URLSearchParams({ date: safeDate, _t: String(Date.now()) });
+  query.set("barber_id", safeBarberId);
 
   const data = await apiRequest<any>(`/api/appointments/slots?${query.toString()}`, { method: "GET" }, true);
   const slots = extractCollection(data, ["slots", "appointmentSlots", "items"]);
@@ -875,26 +879,29 @@ export async function createAppointment(input: {
   barberId: string;
   paymentMethod?: string;
 }): Promise<Appointment> {
+  const date = String(input.date || "").trim();
   const time = normalizeTime(input.time);
   const serviceType = String(input.serviceType || "").trim();
   const barberId = String(input.barberId || "").trim();
+  if (!date || !time || !serviceType || !barberId) {
+    throw new ApiClientError("Servico, barbeiro, data e horario sao obrigatorios.", 400, "VALIDATION_ERROR");
+  }
+
+  const payload: Record<string, unknown> = {
+    appointment_date: date,
+    appointment_time: time,
+    service_type: serviceType,
+    barber_id: barberId,
+  };
+  if (input.paymentMethod) {
+    payload.payment_method = input.paymentMethod;
+  }
 
   const data = await apiRequest<any>(
     "/api/appointments",
     {
       method: "POST",
-      body: JSON.stringify({
-        appointment_date: input.date,
-        appointment_time: time,
-        service_type: serviceType,
-        barber_id: barberId,
-        payment_method: input.paymentMethod || undefined,
-        appointmentDate: input.date,
-        appointmentTime: time,
-        serviceType,
-        barberId,
-        paymentMethod: input.paymentMethod || undefined,
-      }),
+      body: JSON.stringify(payload),
     },
     true,
   );
