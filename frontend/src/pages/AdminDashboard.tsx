@@ -7,6 +7,7 @@ import {
   CheckCircle,
   DollarSign,
   Landmark,
+  Plus,
   RotateCcw,
   Shield,
   MessageCircle,
@@ -23,9 +24,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
   type Barber,
+  createAdminDayHour,
   createAdminBarber,
+  deleteAdminDayHour,
   getAppointmentServices,
   getAdminBarbers,
+  getAdminDayHoursByDate,
   createAdminFixedExpense,
   createAdminVariableExpense,
   deactivateAdminBarber,
@@ -35,10 +39,14 @@ import {
   getAdminAppointmentsByDate,
   getAdminVariableExpenses,
   getFriendlyErrorMessage,
+  getSlotsByDate,
+  updateAdminDayHour,
   updateAdminAppointmentStatus,
   updateAdminBarber,
   type Appointment,
+  type AppointmentSlot,
   type AppointmentStatus,
+  type DayHour,
   type FinancialReport,
   type FixedExpense,
   type VariableExpense,
@@ -51,6 +59,25 @@ function formatMoney(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(value || 0);
+}
+
+const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isValidTimeFormat(value: string) {
+  return HH_MM_REGEX.test(String(value || "").trim());
+}
+
+function getAgendaSlotVisualStatus(slot: AppointmentSlot): "disponivel" | "reservado" | "desabilitado" {
+  if (slot.status === "desabilitado") return "desabilitado";
+  if (slot.status === "agendado" || slot.status === "pago") return "reservado";
+  return "disponivel";
+}
+
+function getAgendaSlotVisualLabel(slot: AppointmentSlot) {
+  const visualStatus = getAgendaSlotVisualStatus(slot);
+  if (visualStatus === "desabilitado") return "desabilitado";
+  if (visualStatus === "reservado") return "reservado";
+  return "disponivel";
 }
 
 function getDiscountPriceDetails(input: { base?: number; final?: number; percent?: number; fallback: number }) {
@@ -187,6 +214,13 @@ const AdminDashboard = () => {
   const [barberName, setBarberName] = useState("");
   const [barberImageUrl, setBarberImageUrl] = useState("");
   const [editingBarberId, setEditingBarberId] = useState<string | null>(null);
+
+  const [agendaLoading, setAgendaLoading] = useState(false);
+  const [agendaSlotsByBarber, setAgendaSlotsByBarber] = useState<Record<string, AppointmentSlot[]>>({});
+  const [dayHours, setDayHours] = useState<DayHour[]>([]);
+  const [newDayHourTime, setNewDayHourTime] = useState("");
+  const [newDayHourReason, setNewDayHourReason] = useState("");
+  const [dayHourSubmitting, setDayHourSubmitting] = useState(false);
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -343,10 +377,215 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (isAdmin) {
       loadServicesCatalog();
-      loadAppointments();
       loadAdminBarbers();
     }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadAppointments();
+    }
   }, [isAdmin, filterDate]);
+
+  const loadAgendaByDate = async (date: string, currentBarbers: Barber[]) => {
+    const activeBarbers = currentBarbers.filter((barber) => barber.isActive);
+    if (activeBarbers.length === 0) {
+      setAgendaSlotsByBarber({});
+      setDayHours([]);
+      return;
+    }
+
+    setAgendaLoading(true);
+    try {
+      const [slotsByBarber, overrides] = await Promise.all([
+        Promise.all(
+          activeBarbers.map(async (barber) => {
+            const response = await getSlotsByDate(date, barber.id);
+            return { barberId: barber.id, slots: response.slots };
+          }),
+        ),
+        getAdminDayHoursByDate(date),
+      ]);
+
+      const nextSlotsByBarber: Record<string, AppointmentSlot[]> = {};
+      slotsByBarber.forEach((entry) => {
+        nextSlotsByBarber[entry.barberId] = entry.slots;
+      });
+
+      setAgendaSlotsByBarber(nextSlotsByBarber);
+      setDayHours(overrides);
+    } catch (error) {
+      if (handleAdminApiError(error, { silentToast: true })) return;
+
+      setAgendaSlotsByBarber({});
+      setDayHours([]);
+      toast({
+        title: "Erro ao carregar grade diaria",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setAgendaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadAgendaByDate(filterDate, barbers);
+  }, [isAdmin, filterDate, barbers]);
+
+  const findSlotOverride = (slot: AppointmentSlot, barberId: string) => {
+    if (slot.dayHourOverrideId) {
+      return dayHours.find((item) => item.id === slot.dayHourOverrideId);
+    }
+
+    const barberScoped = dayHours.find(
+      (item) => item.date === filterDate && item.time === slot.time && item.barberId && item.barberId === barberId,
+    );
+    if (barberScoped) return barberScoped;
+
+    return dayHours.find((item) => item.date === filterDate && item.time === slot.time && !item.barberId);
+  };
+
+  const refreshAgendaData = async () => {
+    await Promise.allSettled([loadAppointments(), loadAgendaByDate(filterDate, barbers)]);
+  };
+
+  const handleCreateDayHour = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const safeTime = String(newDayHourTime || "").slice(0, 5);
+    if (!isValidTimeFormat(safeTime)) {
+      toast({
+        title: "Horario invalido",
+        description: "Informe o horario no formato HH:mm.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDayHourSubmitting(true);
+    try {
+      await createAdminDayHour({
+        date: filterDate,
+        time: safeTime,
+        isEnabled: true,
+        reason: newDayHourReason.trim() || undefined,
+      });
+
+      toast({
+        title: "Horario criado",
+        description: `${safeTime} adicionado para ${formatDateBr(filterDate)}.`,
+      });
+
+      setNewDayHourTime("");
+      setNewDayHourReason("");
+      await refreshAgendaData();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao criar horario",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDayHourSubmitting(false);
+    }
+  };
+
+  const handleToggleDaySlot = async (barberId: string, slot: AppointmentSlot) => {
+    const visualStatus = getAgendaSlotVisualStatus(slot);
+    const override = findSlotOverride(slot, barberId);
+
+    if (visualStatus === "reservado") {
+      toast({
+        title: "Horario reservado",
+        description: "Nao e possivel alterar manualmente um slot reservado.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDayHourSubmitting(true);
+    try {
+      if (visualStatus === "desabilitado") {
+        if (!override) {
+          toast({
+            title: "Override nao encontrado",
+            description: "Esse slot esta desabilitado, mas sem override associado para reativar.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        await updateAdminDayHour(override.id, { isEnabled: true, reason: undefined });
+        toast({
+          title: "Horario reativado",
+          description: `Horario ${slot.time} reativado com sucesso.`,
+        });
+      } else {
+        const confirmed = window.confirm("Deseja desativar este horario manualmente?");
+        if (!confirmed) return;
+
+        const reasonInput = window.prompt("Motivo da desativacao (opcional):", override?.reason || "") || "";
+        const reason = reasonInput.trim() || undefined;
+
+        if (override) {
+          await updateAdminDayHour(override.id, { isEnabled: false, reason });
+        } else {
+          await createAdminDayHour({
+            date: filterDate,
+            time: slot.time,
+            isEnabled: false,
+            reason,
+          });
+        }
+
+        toast({
+          title: "Horario desativado",
+          description: `Horario ${slot.time} desativado com sucesso.`,
+        });
+      }
+
+      await refreshAgendaData();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao atualizar horario",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDayHourSubmitting(false);
+    }
+  };
+
+  const handleDeleteDayHourOverride = async (overrideId: string) => {
+    const confirmed = window.confirm("Deseja remover este override do dia?");
+    if (!confirmed) return;
+
+    setDayHourSubmitting(true);
+    try {
+      await deleteAdminDayHour(overrideId);
+      toast({
+        title: "Override removido",
+        description: "O horario voltou a seguir a grade semanal padrao.",
+      });
+      await refreshAgendaData();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao remover override",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDayHourSubmitting(false);
+    }
+  };
 
   const handleImageUpload = (file: File | null) => {
     if (!file) return;
@@ -728,6 +967,115 @@ const AdminDashboard = () => {
                 className="max-w-xs bg-card border-border text-foreground font-heading"
               />
             </div>
+
+            <section className="glass rounded-lg p-4 md:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h2 className="font-heading text-lg font-semibold">Grade de horarios por barbeiro</h2>
+                  <p className="text-xs text-muted-foreground">Data selecionada: {formatDateBr(filterDate)}</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateDayHour} className="grid grid-cols-1 md:grid-cols-[160px_1fr_auto] gap-2 items-start">
+                <Input
+                  type="time"
+                  value={newDayHourTime}
+                  onChange={(event) => setNewDayHourTime(event.target.value)}
+                  placeholder="HH:mm"
+                  required
+                />
+                <Input
+                  value={newDayHourReason}
+                  onChange={(event) => setNewDayHourReason(event.target.value)}
+                  placeholder="Motivo opcional"
+                  maxLength={120}
+                />
+                <Button type="submit" className="gap-1" disabled={dayHourSubmitting}>
+                  <Plus className="h-4 w-4" /> {dayHourSubmitting ? "Salvando..." : "Criar horario no dia"}
+                </Button>
+              </form>
+
+              {agendaLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando grade do dia...</p>
+              ) : barbers.filter((barber) => barber.isActive).length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum barbeiro ativo para exibir a grade.</p>
+              ) : (
+                <div className="space-y-4">
+                  {barbers
+                    .filter((barber) => barber.isActive)
+                    .map((barber) => {
+                      const slots = agendaSlotsByBarber[barber.id] || [];
+
+                      return (
+                        <div key={barber.id} className="rounded-md border border-border/70 p-3 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium">{barber.fullName}</p>
+                            <p className="text-xs text-muted-foreground">{slots.length} horarios</p>
+                          </div>
+
+                          {slots.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Sem slots para este barbeiro nesta data.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                              {slots.map((slot) => {
+                                const visualStatus = getAgendaSlotVisualStatus(slot);
+                                const visualLabel = getAgendaSlotVisualLabel(slot);
+                                const override = findSlotOverride(slot, barber.id);
+                                const reason = slot.reason || override?.reason;
+                                const statusClass =
+                                  visualStatus === "desabilitado"
+                                    ? "bg-destructive/15 text-destructive"
+                                    : visualStatus === "reservado"
+                                      ? "bg-amber-500/20 text-amber-500"
+                                      : "bg-green-500/20 text-green-500";
+
+                                return (
+                                  <div key={`${barber.id}-${slot.time}-${slot.status}-${slot.dayHourOverrideId || "na"}`} className="rounded-md border border-border/70 bg-card p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="font-heading font-semibold text-base">{slot.time.slice(0, 5)}</p>
+                                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusClass}`}>{visualLabel}</span>
+                                    </div>
+
+                                    {reason && (
+                                      <p className="text-xs text-muted-foreground mt-2 min-h-8">Motivo: {reason}</p>
+                                    )}
+
+                                    <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                                      <Button
+                                        size="sm"
+                                        type="button"
+                                        variant="outline"
+                                        disabled={dayHourSubmitting || visualStatus === "reservado"}
+                                        onClick={() => handleToggleDaySlot(barber.id, slot)}
+                                        className="w-full"
+                                      >
+                                        {visualStatus === "desabilitado" ? "Reativar" : "Desativar"}
+                                      </Button>
+
+                                      {override && (
+                                        <Button
+                                          size="sm"
+                                          type="button"
+                                          variant="outline"
+                                          disabled={dayHourSubmitting}
+                                          onClick={() => handleDeleteDayHourOverride(override.id)}
+                                          className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+                                        >
+                                          Remover override
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </section>
 
             {loading ? (
               <p className="text-muted-foreground text-center py-12">Carregando...</p>

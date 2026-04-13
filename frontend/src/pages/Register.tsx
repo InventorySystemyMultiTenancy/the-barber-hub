@@ -52,7 +52,7 @@ const Register = () => {
         <div className="text-center">
           <Link to="/" className="inline-flex items-center gap-2">
             <Scissors className="h-8 w-8 text-primary" />
-            <span className="font-heading text-3xl font-bold gold-text">CHINCOA CORTES</span>
+            <span className="font-heading text-3xl font-bold gold-text">CHINCOA CORTS</span>
           </Link>
           <p className="mt-3 text-muted-foreground">Crie sua conta</p>
         </div>

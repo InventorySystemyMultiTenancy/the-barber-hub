@@ -12,7 +12,7 @@ const Header = () => {
       <div className="container mx-auto flex items-center justify-between h-16 px-4">
         <Link to="/" className="flex items-center gap-1.5">
           <img src={logoImage} alt="Logo Chincoa Cortes" className="h-14 w-14 object-contain" />
-          <span className="hidden md:inline font-heading text-lg lg:text-xl font-bold gold-text">CHINCOA CORTES</span>
+          <span className="hidden md:inline font-heading text-lg lg:text-xl font-bold gold-text">CHINCOA CORTS</span>
         </Link>
 
         <nav className="flex items-center gap-2 sm:gap-3">

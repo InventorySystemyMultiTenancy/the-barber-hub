@@ -169,6 +169,36 @@ export interface AppointmentSlot {
   status: AppointmentStatus;
   appointmentId?: string;
   reason?: string;
+  dayHourOverrideId?: string;
+  barberId?: string;
+  barberName?: string;
+}
+
+export interface DayHour {
+  id: string;
+  date: string;
+  slotTime: string;
+  time: string;
+  isEnabled: boolean;
+  reason?: string;
+  barberId?: string;
+  barberName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateDayHourPayload {
+  date: string;
+  time: string;
+  isEnabled?: boolean;
+  reason?: string;
+}
+
+export interface UpdateDayHourPayload {
+  date?: string;
+  time?: string;
+  isEnabled?: boolean;
+  reason?: string;
 }
 
 export interface SlotsMeta {
@@ -658,11 +688,44 @@ function normalizeVariableExpense(raw: any): VariableExpense {
 }
 
 function normalizeSlot(raw: any): AppointmentSlot {
+  const overrideIdRaw =
+    raw.day_hour_override_id ?? raw.dayHourOverrideId ?? raw.day_hour_id ?? raw.dayHourId ?? raw.override_id ?? raw.overrideId;
+
+  const barberIdRaw = raw.barber_id ?? raw.barberId ?? raw.barber?.id;
+  const barberNameRaw = raw.barber_name ?? raw.barberName ?? raw.barber?.full_name ?? raw.barber?.fullName;
+
   return {
     time: normalizeTime(String(raw.time ?? raw.appointment_time ?? raw.appointmentTime ?? "")),
     status: (raw.status ?? "disponivel") as AppointmentStatus,
     appointmentId: raw.appointment_id ?? raw.appointmentId ?? undefined,
     reason: raw.reason ?? undefined,
+    dayHourOverrideId: overrideIdRaw ? String(overrideIdRaw) : undefined,
+    barberId: barberIdRaw ? String(barberIdRaw) : undefined,
+    barberName: barberNameRaw ? String(barberNameRaw) : undefined,
+  };
+}
+
+function normalizeDayHour(raw: any): DayHour {
+  const time = normalizeTime(String(raw.time ?? raw.slot_time ?? raw.slotTime ?? ""));
+  const date = normalizeDateOnly(raw.date ?? raw.day ?? raw.appointment_date ?? raw.appointmentDate ?? "");
+
+  const barberIdRaw = raw.barber_id ?? raw.barberId ?? raw.barber?.id;
+  const barberNameRaw = raw.barber_name ?? raw.barberName ?? raw.barber?.full_name ?? raw.barber?.fullName;
+
+  const fallbackId = `${date || "no-date"}-${time || "no-time"}-${String(barberIdRaw || "global")}`;
+  const id = String(raw.id ?? raw.day_hour_id ?? raw.dayHourId ?? raw.override_id ?? raw.overrideId ?? fallbackId);
+
+  return {
+    id,
+    date,
+    slotTime: time,
+    time,
+    isEnabled: Boolean(raw.is_enabled ?? raw.isEnabled ?? true),
+    reason: raw.reason ? String(raw.reason) : undefined,
+    barberId: barberIdRaw ? String(barberIdRaw) : undefined,
+    barberName: barberNameRaw ? String(barberNameRaw) : undefined,
+    createdAt: raw.created_at ?? raw.createdAt ?? undefined,
+    updatedAt: raw.updated_at ?? raw.updatedAt ?? undefined,
   };
 }
 
@@ -917,6 +980,89 @@ export async function getAdminAppointmentsByDate(date: string): Promise<Appointm
   const data = await apiRequest<any>(`/api/admin/appointments?date=${encodeURIComponent(date)}`, { method: "GET" }, true);
   const appointments = extractCollection(data, ["appointments", "items"]);
   return appointments.map(normalizeAppointment);
+}
+
+export async function getAdminDayHoursByDate(date: string): Promise<DayHour[]> {
+  const safeDate = normalizeDateOnly(date);
+  if (!safeDate) {
+    throw new ApiClientError("Data invalida para consultar grade diaria.", 400, "VALIDATION_ERROR");
+  }
+
+  const query = new URLSearchParams({ date: safeDate, _t: String(Date.now()) }).toString();
+  const data = await apiRequest<any>(`/api/admin/schedule/day-hours?${query}`, { method: "GET" }, true);
+  const rows = extractCollection(data, ["day_hours", "dayHours", "overrides", "items", "rows"]);
+  return rows.map(normalizeDayHour).filter((item) => item.time.length > 0);
+}
+
+export async function getAdminDayHoursByRange(from: string, to: string): Promise<DayHour[]> {
+  const safeFrom = normalizeDateOnly(from);
+  const safeTo = normalizeDateOnly(to);
+  if (!safeFrom || !safeTo) {
+    throw new ApiClientError("Periodo invalido para consultar grade diaria.", 400, "VALIDATION_ERROR");
+  }
+
+  const query = new URLSearchParams({ from: safeFrom, to: safeTo, _t: String(Date.now()) }).toString();
+  const data = await apiRequest<any>(`/api/admin/schedule/day-hours?${query}`, { method: "GET" }, true);
+  const rows = extractCollection(data, ["day_hours", "dayHours", "overrides", "items", "rows"]);
+  return rows.map(normalizeDayHour).filter((item) => item.time.length > 0);
+}
+
+export async function createAdminDayHour(payload: CreateDayHourPayload): Promise<DayHour> {
+  const safeDate = normalizeDateOnly(payload.date);
+  const safeTime = normalizeTime(payload.time);
+
+  if (!safeDate || !safeTime) {
+    throw new ApiClientError("Data e horario sao obrigatorios.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    "/api/admin/schedule/day-hours",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        date: safeDate,
+        time: safeTime,
+        isEnabled: payload.isEnabled,
+        reason: payload.reason || undefined,
+      }),
+    },
+    true,
+  );
+
+  return normalizeDayHour(data?.day_hour ?? data?.dayHour ?? data?.override ?? data);
+}
+
+export async function updateAdminDayHour(id: string, payload: UpdateDayHourPayload): Promise<DayHour> {
+  const safeId = String(id || "").trim();
+  if (!safeId) {
+    throw new ApiClientError("ID do horario e obrigatorio.", 400, "VALIDATION_ERROR");
+  }
+
+  const body: Record<string, unknown> = {};
+  if (payload.date !== undefined) body.date = normalizeDateOnly(payload.date);
+  if (payload.time !== undefined) body.time = normalizeTime(payload.time);
+  if (payload.isEnabled !== undefined) body.isEnabled = payload.isEnabled;
+  if (payload.reason !== undefined) body.reason = payload.reason || undefined;
+
+  const data = await apiRequest<any>(
+    `/api/admin/schedule/day-hours/${encodeURIComponent(safeId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+    true,
+  );
+
+  return normalizeDayHour(data?.day_hour ?? data?.dayHour ?? data?.override ?? data);
+}
+
+export async function deleteAdminDayHour(id: string): Promise<void> {
+  const safeId = String(id || "").trim();
+  if (!safeId) {
+    throw new ApiClientError("ID do horario e obrigatorio.", 400, "VALIDATION_ERROR");
+  }
+
+  await apiRequest<unknown>(`/api/admin/schedule/day-hours/${encodeURIComponent(safeId)}`, { method: "DELETE" }, true);
 }
 
 export async function getAdminBarbers(): Promise<Barber[]> {
