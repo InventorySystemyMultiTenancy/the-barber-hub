@@ -5,31 +5,41 @@ import { getMercadoPagoClient, type MpCardFormInstance } from "@/lib/mercadoPago
 interface MercadoPagoCardFormProps {
   amount: number;
   initialEmail: string;
-  onTokenReceived: (token: string, emailFromForm: string) => void;
+  onTokenReceived: (token: string, emailFromForm: string) => void | Promise<void>;
   onError: (message: string) => void;
+  submitLabel?: string;
+  submitting?: boolean;
 }
 
 const PUBLIC_KEY = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY || import.meta.env.VITE_MP_PUBLIC_KEY || "";
 
-export default function MercadoPagoCardForm({ amount, initialEmail, onTokenReceived, onError }: MercadoPagoCardFormProps) {
+export default function MercadoPagoCardForm({
+  amount,
+  initialEmail,
+  onTokenReceived,
+  onError,
+  submitLabel = "Gerar token do cartao",
+  submitting = false,
+}: MercadoPagoCardFormProps) {
   const [sdkReady, setSdkReady] = useState(false);
   const [loadingToken, setLoadingToken] = useState(false);
+  const initializedRef = useRef(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
   const lastSdkErrorsRef = useRef<Array<{ field?: string; message?: string }>>([]);
   const onErrorRef = useRef(onError);
   const onTokenReceivedRef = useRef(onTokenReceived);
-  const formIdRef = useRef(`mp-card-form-${Math.random().toString(36).slice(2)}`);
+  const formIdRef = useRef("mp-card-form");
 
   const idsRef = useRef({
-    cardNumber: `cardNumber-${Math.random().toString(36).slice(2)}`,
-    expirationDate: `expirationDate-${Math.random().toString(36).slice(2)}`,
-    securityCode: `securityCode-${Math.random().toString(36).slice(2)}`,
-    cardholderName: `cardholderName-${Math.random().toString(36).slice(2)}`,
-    cardholderEmail: `cardholderEmail-${Math.random().toString(36).slice(2)}`,
-    issuer: `issuer-${Math.random().toString(36).slice(2)}`,
-    installments: `installments-${Math.random().toString(36).slice(2)}`,
-    identificationType: `identificationType-${Math.random().toString(36).slice(2)}`,
-    identificationNumber: `identificationNumber-${Math.random().toString(36).slice(2)}`,
+    cardNumber: "cardNumber",
+    expirationDate: "expirationDate",
+    securityCode: "securityCode",
+    cardholderName: "cardholderName",
+    cardholderEmail: "email",
+    issuer: "issuer",
+    installments: "installments",
+    identificationType: "identificationType",
+    identificationNumber: "identificationNumber",
   });
 
   useEffect(() => {
@@ -42,6 +52,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
   useEffect(() => {
     let mounted = true;
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     setSdkReady(false);
 
     const hasMountedSecureFields = () => {
@@ -158,7 +170,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
               setSdkReady(true);
             },
-            onSubmit: (event) => {
+            onSubmit: async (event) => {
               event.preventDefault();
               setLoadingToken(true);
               lastSdkErrorsRef.current = [];
@@ -183,7 +195,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
                   return;
                 }
 
-                onTokenReceivedRef.current(token, email);
+                await onTokenReceivedRef.current(token, email);
               } finally {
                 setLoadingToken(false);
               }
@@ -208,6 +220,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
     return () => {
       mounted = false;
+      initializedRef.current = false;
       const currentForm = cardFormRef.current;
       cardFormRef.current = null;
 
@@ -222,7 +235,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
         }
       }
     };
-  }, [amount]);
+  }, []);
 
   useEffect(() => {
     const emailInput = document.getElementById(idsRef.current.cardholderEmail) as HTMLInputElement | null;
@@ -264,7 +277,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
         />
         <input
           id={idsRef.current.cardholderEmail}
-          name="cardholderEmail"
+          name="email"
           placeholder="Email do titular"
           className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
           autoComplete="email"
@@ -296,8 +309,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           />
         </div>
 
-        <Button type="submit" disabled={!sdkReady || loadingToken} className="w-full">
-          {loadingToken ? "Gerando token..." : "Gerar token do cartao"}
+        <Button type="submit" disabled={!sdkReady || loadingToken || submitting} className="w-full">
+          {loadingToken || submitting ? "Processando..." : submitLabel}
         </Button>
       </form>
 
