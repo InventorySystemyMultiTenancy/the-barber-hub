@@ -1,25 +1,30 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import SubscriptionCheckoutForm from "@/components/subscription/SubscriptionCheckoutForm";
 import SubscriptionPlansList from "@/components/subscription/SubscriptionPlansList";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateSubscription } from "@/hooks/useCreateSubscription";
 import { useSubscriptionPlans } from "@/hooks/useSubscriptionPlans";
 import { toast } from "@/hooks/use-toast";
-import { getFriendlyErrorMessage, type SubscriptionPlan } from "@/lib/api";
+import { createSubscriptionPlan, getFriendlyErrorMessage, type SubscriptionPlan } from "@/lib/api";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SubscriptionCheckout() {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isAdmin } = useAuth();
   const { plans, loading: plansLoading, error: plansError, reload } = useSubscriptionPlans();
   const { mutate: createSubscription, loading: createLoading } = useCreateSubscription();
 
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [email, setEmail] = useState(user?.email || "");
   const [cardToken, setCardToken] = useState("");
+  const [planCreating, setPlanCreating] = useState(false);
+  const [planAmount, setPlanAmount] = useState("79.9");
+  const [planReason, setPlanReason] = useState("Plano mensal personalizado");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -120,6 +125,44 @@ export default function SubscriptionCheckout() {
     }
   };
 
+  const handleCreatePlan = async () => {
+    const amount = Number(planAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({
+        title: "Valor invalido",
+        description: "Informe um valor maior que zero para criar o plano.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPlanCreating(true);
+    try {
+      const plan = await createSubscriptionPlan({
+        transaction_amount: amount,
+        reason: planReason.trim() || undefined,
+        frequency: 1,
+        frequency_type: "months",
+        currency_id: "BRL",
+      });
+
+      await reload();
+
+      toast({
+        title: "Plano criado",
+        description: `Novo plano criado: ${plan.id}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao criar plano",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPlanCreating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -164,6 +207,28 @@ export default function SubscriptionCheckout() {
             onSubmit={handleCreateSubscription}
           />
         </section>
+
+        {isAdmin ? (
+          <section className="glass rounded-lg p-4 md:p-5 space-y-3">
+            <h2 className="font-heading text-xl font-semibold">Admin: criar plano no backend</h2>
+            <Input
+              type="number"
+              min="1"
+              step="0.01"
+              value={planAmount}
+              onChange={(event) => setPlanAmount(event.target.value)}
+              placeholder="transaction_amount"
+            />
+            <Input
+              value={planReason}
+              onChange={(event) => setPlanReason(event.target.value)}
+              placeholder="reason opcional"
+            />
+            <Button type="button" onClick={handleCreatePlan} disabled={planCreating}>
+              {planCreating ? "Criando plano..." : "Criar plano mensal"}
+            </Button>
+          </section>
+        ) : null}
       </div>
     </div>
   );
