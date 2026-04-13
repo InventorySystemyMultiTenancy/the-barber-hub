@@ -27,6 +27,23 @@ export function subscriptionStatusMessage(status: SubscriptionInfo["status"]) {
   return map[status] || map.unknown;
 }
 
+function formatStatusLabel(value?: string) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const map: Record<string, string> = {
+    approved: "aprovado",
+    aproved: "aprovado",
+    authorized: "autorizado",
+    canceled: "cancelado",
+    cancelled: "cancelado",
+    pending: "pendente",
+    paused: "pausado",
+    rejected: "rejeitado",
+    unknown: "desconhecido",
+  };
+
+  return map[normalized] || value || "-";
+}
+
 type SubscriptionStatusPanelProps = {
   subscription: SubscriptionInfo;
 };
@@ -47,7 +64,7 @@ export default function SubscriptionStatusPanel({ subscription }: SubscriptionSt
     <div className="glass rounded-lg p-5 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="font-heading text-lg font-semibold">Minha assinatura</p>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClass}`}>{subscription.status}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClass}`}>{formatStatusLabel(subscription.status)}</span>
       </div>
 
       <p className="text-sm text-muted-foreground">{subscriptionStatusMessage(subscription.status)}</p>

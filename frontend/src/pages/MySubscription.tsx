@@ -175,7 +175,7 @@ export default function MySubscription() {
         {currentSubscription ? (
           <>
             <SubscriptionStatusPanel subscription={currentSubscription} />
-            <SubscriptionAttemptsList attempts={currentSubscription.attempts || []} />
+            <SubscriptionAttemptsList attempts={currentSubscription.attempts || []} subscription={currentSubscription} />
 
             <div className="glass rounded-lg p-4 md:p-5">
               <Button
