@@ -15,6 +15,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
   const [sdkReady, setSdkReady] = useState(false);
   const [loadingToken, setLoadingToken] = useState(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
+  const lastSdkErrorsRef = useRef<Array<{ field?: string; message?: string }>>([]);
   const onErrorRef = useRef(onError);
   const onTokenReceivedRef = useRef(onTokenReceived);
   const formIdRef = useRef(`mp-card-form-${Math.random().toString(36).slice(2)}`);
@@ -53,6 +54,54 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           expirationContainer?.querySelector("iframe") &&
           securityContainer?.querySelector("iframe"),
       );
+    };
+
+    const normalizeSecureFieldIframes = () => {
+      const containers = [
+        idsRef.current.cardNumber,
+        idsRef.current.expirationDate,
+        idsRef.current.securityCode,
+      ];
+
+      containers.forEach((containerId) => {
+        const container = document.getElementById(containerId);
+        const iframe = container?.querySelector("iframe") as HTMLIFrameElement | null;
+        if (!container || !iframe) return;
+
+        iframe.style.width = "100%";
+        iframe.style.height = "100%";
+        iframe.style.display = "block";
+        iframe.style.border = "0";
+        iframe.style.pointerEvents = "auto";
+      });
+    };
+
+    const hasBlockingSdkErrors = () => {
+      return lastSdkErrorsRef.current.some((item) => {
+        const field = String(item.field || "").toLowerCase();
+        return ["cardnumber", "securitycode", "expirationdate", "expirationmonth", "expirationyear"].includes(field);
+      });
+    };
+
+    const buildSdkErrorMessage = (error: unknown) => {
+      if (Array.isArray(error)) {
+        const normalized = error.map((item) => ({
+          field: item?.field ? String(item.field) : undefined,
+          message: item?.message ? String(item.message) : undefined,
+        }));
+        lastSdkErrorsRef.current = normalized;
+
+        const securityIssue = normalized.find((item) => String(item.field || "").toLowerCase().includes("security"));
+        if (securityIssue) {
+          return "Nao foi possivel validar o CVV. Preencha o codigo de seguranca e tente novamente.";
+        }
+
+        const firstMessage = normalized.find((item) => item.message)?.message;
+        return firstMessage || "Falha ao validar os dados do cartao.";
+      }
+
+      lastSdkErrorsRef.current = [];
+      return error instanceof Error ? error.message : String(error || "");
     };
 
     const init = async () => {
@@ -99,6 +148,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
                 return;
               }
 
+              normalizeSecureFieldIframes();
+
               if (!hasMountedSecureFields()) {
                 onErrorRef.current("Nao foi possivel montar os campos de cartao. Recarregue a pagina e tente novamente.");
                 setSdkReady(false);
@@ -115,6 +166,11 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
                 const formData = cardFormRef.current?.getCardFormData();
                 const token = String(formData?.token || "").trim();
                 const email = String(formData?.cardholderEmail || "").trim();
+
+                if (hasBlockingSdkErrors()) {
+                  onErrorRef.current("Dados do cartao invalidos. Revise numero, validade e CVV para gerar o token.");
+                  return;
+                }
 
                 if (!token) {
                   onErrorRef.current("Token do cartao nao foi gerado. Revise os dados e tente novamente.");
@@ -133,7 +189,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
             },
             onFetching: () => {},
             onError: (error) => {
-              const message = error instanceof Error ? error.message : String(error || "");
+              const message = buildSdkErrorMessage(error);
               onErrorRef.current(
                 message
                   ? `Falha ao gerar token do cartao: ${message}`
@@ -181,16 +237,21 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
       <form id={formIdRef.current} className="space-y-2">
         <div
           id={idsRef.current.cardNumber}
-          className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+          className="relative min-w-0 h-10 rounded-md border border-input bg-background px-2 py-1 overflow-hidden cursor-text"
         />
         <div className="grid grid-cols-2 gap-2">
           <div
             id={idsRef.current.expirationDate}
-            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-2 py-1 overflow-hidden cursor-text"
           />
           <div
             id={idsRef.current.securityCode}
-            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-2 py-1 overflow-hidden cursor-text"
+            onClick={() => {
+              const container = document.getElementById(idsRef.current.securityCode);
+              const iframe = container?.querySelector("iframe") as HTMLIFrameElement | null;
+              iframe?.focus();
+            }}
           />
         </div>
         <input
