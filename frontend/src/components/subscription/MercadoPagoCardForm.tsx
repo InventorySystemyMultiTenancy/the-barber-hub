@@ -52,8 +52,9 @@ export default function MercadoPagoCardForm({
 
   useEffect(() => {
     let mounted = true;
-    if (initializedRef.current) return;
+    if (initializedRef.current || window.__mpCheckoutMounted) return;
     initializedRef.current = true;
+    window.__mpCheckoutMounted = true;
     setSdkReady(false);
 
     const hasMountedSecureFields = () => {
@@ -118,6 +119,8 @@ export default function MercadoPagoCardForm({
 
     const init = async () => {
       if (!PUBLIC_KEY) {
+        window.__mpCheckoutMounted = false;
+        initializedRef.current = false;
         onErrorRef.current("Configure VITE_MERCADO_PAGO_PUBLIC_KEY para tokenizar cartao.");
         return;
       }
@@ -225,6 +228,8 @@ export default function MercadoPagoCardForm({
           },
         });
       } catch (error) {
+        window.__mpCheckoutMounted = false;
+        initializedRef.current = false;
         onErrorRef.current(error instanceof Error ? error.message : "Falha ao carregar Mercado Pago.");
       }
     };
@@ -234,6 +239,7 @@ export default function MercadoPagoCardForm({
     return () => {
       mounted = false;
       initializedRef.current = false;
+      window.__mpCheckoutMounted = false;
       const currentForm = cardFormRef.current;
       cardFormRef.current = null;
 

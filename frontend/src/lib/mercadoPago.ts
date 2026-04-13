@@ -50,6 +50,7 @@ type MpClient = {
 declare global {
   interface Window {
     MercadoPago?: new (publicKey: string, options?: { locale?: string }) => MpClient;
+    __mpCheckoutMounted?: boolean;
   }
 }
 
