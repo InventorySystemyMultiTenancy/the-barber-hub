@@ -13,6 +13,7 @@ import Booking from "./pages/Booking";
 import MyAppointments from "./pages/MyAppointments";
 import MySubscription from "./pages/MySubscription";
 import SubscriptionCheckout from "./pages/SubscriptionCheckout";
+import SubscriptionPlans from "./pages/SubscriptionPlans";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
@@ -56,7 +57,8 @@ const App = () => {
               <Route path="/cadastro" element={<Register />} />
               <Route path="/agendar" element={<Booking />} />
               <Route path="/meus-agendamentos" element={<MyAppointments />} />
-              <Route path="/assinatura" element={<SubscriptionCheckout />} />
+              <Route path="/assinatura" element={<SubscriptionPlans />} />
+              <Route path="/assinatura/checkout" element={<SubscriptionCheckout />} />
               <Route path="/minha-assinatura" element={<MySubscription />} />
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="*" element={<NotFound />} />

@@ -269,7 +269,8 @@ export interface PaymentStatusResponse {
 export type SubscriptionStatus = "authorized" | "pending" | "paused" | "canceled" | "unknown";
 
 export interface SubscriptionPlanPayload {
-  reason?: string;
+  name: string;
+  description?: string;
   transaction_amount: number;
   frequency?: number;
   frequency_type?: "days" | "months";
@@ -282,12 +283,12 @@ export interface SubscriptionPlan {
   name?: string;
   description?: string;
   preapprovalPlanId?: string;
-  reason?: string;
   transactionAmount: number;
   frequency?: number;
   frequencyType?: "days" | "months";
   currencyId?: string;
   backUrl?: string;
+  isActive?: boolean;
 }
 
 export interface CreateSubscriptionPayload {
@@ -568,12 +569,12 @@ function normalizeSubscriptionPlan(raw: any): SubscriptionPlan {
     name: raw?.name ?? undefined,
     description: raw?.description ?? undefined,
     preapprovalPlanId: raw?.preapproval_plan_id ?? raw?.preapprovalPlanId ?? raw?.id ?? undefined,
-    reason: raw?.reason ?? undefined,
     transactionAmount,
     frequency: Number(raw?.frequency ?? 0) || undefined,
     frequencyType: raw?.frequency_type ?? raw?.frequencyType ?? undefined,
     currencyId: raw?.currency_id ?? raw?.currencyId ?? undefined,
     backUrl: raw?.back_url ?? raw?.backUrl ?? undefined,
+    isActive: Boolean(raw?.is_active ?? raw?.isActive ?? raw?.active ?? true),
   };
 }
 
@@ -1414,11 +1415,54 @@ export async function cancelPayment(reference: string): Promise<PaymentStatusRes
 }
 
 export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): Promise<SubscriptionPlan> {
+  const safeName = String(payload.name || "").trim();
+  const safeAmount = Number(payload.transaction_amount || 0);
+  if (!safeName || !Number.isFinite(safeAmount) || safeAmount <= 0) {
+    throw new ApiClientError("Nome e valor do plano sao obrigatorios.", 400, "VALIDATION_ERROR");
+  }
+
   const data = await apiRequest<any>(
     "/api/payments/subscriptions/plans",
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        name: safeName,
+        description: payload.description || undefined,
+        transaction_amount: safeAmount,
+        frequency: payload.frequency ?? 1,
+        frequency_type: payload.frequency_type ?? "months",
+        currency_id: payload.currency_id ?? "BRL",
+        back_url: payload.back_url || undefined,
+      }),
+    },
+    true,
+  );
+
+  return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
+}
+
+export async function getAdminSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+  const data = await apiRequest<any>(
+    `/api/payments/subscriptions/plans?_t=${Date.now()}`,
+    { method: "GET" },
+    true,
+  );
+
+  const plans = extractCollection(data, ["plans", "items"]);
+  return plans.map(normalizeSubscriptionPlan);
+}
+
+export async function toggleSubscriptionPlan(reference: string, isActive: boolean): Promise<SubscriptionPlan> {
+  const safeReference = String(reference || "").trim();
+  if (!safeReference) {
+    throw new ApiClientError("Referencia do plano e obrigatoria.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    `/api/payments/subscriptions/plans/${encodeURIComponent(safeReference)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_active: isActive }),
     },
     true,
   );

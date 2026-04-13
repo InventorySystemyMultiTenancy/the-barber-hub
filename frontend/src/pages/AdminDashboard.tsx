@@ -24,11 +24,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiClientError,
   type Barber,
+  type SubscriptionPlan,
   createAdminDayHour,
   createAdminBarber,
+  createSubscriptionPlan,
   deleteAdminDayHour,
   getAppointmentServices,
   getAdminBarbers,
+  getAdminSubscriptionPlans,
   getAdminDayHoursByDate,
   createAdminFixedExpense,
   createAdminVariableExpense,
@@ -40,6 +43,7 @@ import {
   getAdminVariableExpenses,
   getFriendlyErrorMessage,
   getSlotsByDate,
+  toggleSubscriptionPlan,
   updateAdminDayHour,
   updateAdminAppointmentStatus,
   updateAdminBarber,
@@ -222,6 +226,17 @@ const AdminDashboard = () => {
   const [newDayHourReason, setNewDayHourReason] = useState("");
   const [dayHourSubmitting, setDayHourSubmitting] = useState(false);
 
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState<string | null>(null);
+  const [planSubmitting, setPlanSubmitting] = useState(false);
+  const [planToggleLoadingRef, setPlanToggleLoadingRef] = useState<string | null>(null);
+
+  const [planName, setPlanName] = useState("Plano Mensal");
+  const [planDescription, setPlanDescription] = useState("Assinatura mensal premium");
+  const [planAmount, setPlanAmount] = useState("29.90");
+  const [planBackUrl, setPlanBackUrl] = useState("");
+
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       navigate("/");
@@ -292,6 +307,24 @@ const AdminDashboard = () => {
       }
     } finally {
       setBarbersLoading(false);
+    }
+  };
+
+  const loadAdminSubscriptionPlans = async () => {
+    setPlansLoading(true);
+    setPlansError(null);
+
+    try {
+      const data = await getAdminSubscriptionPlans();
+      setSubscriptionPlans(data);
+    } catch (error) {
+      if (handleAdminApiError(error, { silentToast: true })) {
+        setPlansError("Sem permissao para listar planos.");
+      } else {
+        setPlansError(getFriendlyErrorMessage(error));
+      }
+    } finally {
+      setPlansLoading(false);
     }
   };
 
@@ -378,6 +411,7 @@ const AdminDashboard = () => {
     if (isAdmin) {
       loadServicesCatalog();
       loadAdminBarbers();
+      loadAdminSubscriptionPlans();
     }
   }, [isAdmin]);
 
@@ -908,6 +942,86 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleCreateSubscriptionPlan = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const amount = Number(planAmount);
+    if (!planName.trim() || !Number.isFinite(amount) || amount <= 0) {
+      toast({
+        title: "Dados invalidos",
+        description: "Nome e valor maior que zero sao obrigatorios.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPlanSubmitting(true);
+    try {
+      await createSubscriptionPlan({
+        name: planName.trim(),
+        description: planDescription.trim() || undefined,
+        transaction_amount: amount,
+        frequency: 1,
+        frequency_type: "months",
+        currency_id: "BRL",
+        back_url: planBackUrl.trim() || undefined,
+      });
+
+      toast({
+        title: "Plano criado",
+        description: "Plano mensal criado com sucesso.",
+      });
+
+      setPlanName("Plano Mensal");
+      setPlanDescription("Assinatura mensal premium");
+      setPlanAmount("29.90");
+      setPlanBackUrl("");
+      await loadAdminSubscriptionPlans();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao criar plano",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPlanSubmitting(false);
+    }
+  };
+
+  const handleToggleSubscriptionPlan = async (plan: SubscriptionPlan) => {
+    const reference = String(plan.preapprovalPlanId || plan.id || "").trim();
+    if (!reference) {
+      toast({
+        title: "Referencia invalida",
+        description: "Nao foi possivel identificar o plano para atualizar status.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPlanToggleLoadingRef(reference);
+    try {
+      await toggleSubscriptionPlan(reference, !plan.isActive);
+      toast({
+        title: "Plano atualizado",
+        description: `Plano ${!plan.isActive ? "ativado" : "inativado"} com sucesso.`,
+      });
+      await loadAdminSubscriptionPlans();
+    } catch (error) {
+      if (handleAdminApiError(error)) return;
+
+      toast({
+        title: "Erro ao atualizar plano",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPlanToggleLoadingRef(null);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -932,12 +1046,13 @@ const AdminDashboard = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full max-w-xl grid grid-cols-3 mb-8">
+          <TabsList className="w-full max-w-2xl grid grid-cols-4 mb-8">
             <TabsTrigger value="agenda">Agenda</TabsTrigger>
             <TabsTrigger value="relatorios" className="gap-2">
               <BarChart3 className="h-4 w-4" /> Relatorios
             </TabsTrigger>
             <TabsTrigger value="barbeiros">Barbeiros</TabsTrigger>
+            <TabsTrigger value="planos">Planos</TabsTrigger>
           </TabsList>
 
           <TabsContent value="agenda" className="space-y-6">
@@ -1285,6 +1400,111 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="planos" className="space-y-6">
+            <section className="glass rounded-lg p-4 md:p-5 space-y-4">
+              <h2 className="font-heading text-xl font-semibold">Novo plano mensal</h2>
+
+              <form onSubmit={handleCreateSubscriptionPlan} className="space-y-3">
+                <Input
+                  value={planName}
+                  onChange={(event) => setPlanName(event.target.value)}
+                  placeholder="Nome do plano"
+                  required
+                />
+                <Textarea
+                  value={planDescription}
+                  onChange={(event) => setPlanDescription(event.target.value)}
+                  placeholder="Descricao do plano"
+                  rows={2}
+                />
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={planAmount}
+                  onChange={(event) => setPlanAmount(event.target.value)}
+                  placeholder="Valor mensal"
+                  required
+                />
+                <Input
+                  value={planBackUrl}
+                  onChange={(event) => setPlanBackUrl(event.target.value)}
+                  placeholder="Back URL (opcional)"
+                />
+
+                <p className="text-xs text-muted-foreground">Padrao aplicado: frequencia mensal, BRL.</p>
+
+                <Button type="submit" disabled={planSubmitting}>
+                  {planSubmitting ? "Criando plano..." : "Criar plano mensal"}
+                </Button>
+              </form>
+            </section>
+
+            <section className="glass rounded-lg p-4 md:p-5 space-y-4">
+              <h2 className="font-heading text-xl font-semibold">Planos cadastrados</h2>
+
+              {plansError ? (
+                <div className="rounded-md border border-destructive/40 p-3">
+                  <p className="text-destructive font-semibold">Erro ao carregar planos</p>
+                  <p className="text-sm text-muted-foreground mt-1">{plansError}</p>
+                  <Button variant="outline" className="mt-3" onClick={loadAdminSubscriptionPlans}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              ) : plansLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando planos...</p>
+              ) : subscriptionPlans.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum plano cadastrado.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/70 text-left text-muted-foreground">
+                        <th className="py-2 pr-3">Nome</th>
+                        <th className="py-2 pr-3">Descricao</th>
+                        <th className="py-2 pr-3">Valor</th>
+                        <th className="py-2 pr-3">Frequencia</th>
+                        <th className="py-2 pr-3">Moeda</th>
+                        <th className="py-2 pr-3">preapproval_plan_id</th>
+                        <th className="py-2 pr-3">Ativo</th>
+                        <th className="py-2">Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subscriptionPlans.map((plan) => {
+                        const reference = String(plan.preapprovalPlanId || plan.id || "");
+                        const isToggling = planToggleLoadingRef === reference;
+
+                        return (
+                          <tr key={reference || plan.id} className="border-b border-border/40 align-top">
+                            <td className="py-2 pr-3">{plan.name || "-"}</td>
+                            <td className="py-2 pr-3">{plan.description || "-"}</td>
+                            <td className="py-2 pr-3">{formatMoney(plan.transactionAmount || 0)}</td>
+                            <td className="py-2 pr-3">{plan.frequency || "-"} {plan.frequencyType || "-"}</td>
+                            <td className="py-2 pr-3">{plan.currencyId || "BRL"}</td>
+                            <td className="py-2 pr-3 break-all">{plan.preapprovalPlanId || plan.id}</td>
+                            <td className="py-2 pr-3">{plan.isActive ? "Sim" : "Nao"}</td>
+                            <td className="py-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isToggling}
+                                onClick={() => handleToggleSubscriptionPlan(plan)}
+                              >
+                                {isToggling ? "Atualizando..." : plan.isActive ? "Inativar" : "Ativar"}
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>
