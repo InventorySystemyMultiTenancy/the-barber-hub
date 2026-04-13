@@ -54,9 +54,6 @@ export default function SubscriptionStatusPanel({ subscription }: SubscriptionSt
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
         <p>
-          <span className="text-muted-foreground">provider_status:</span> {subscription.providerStatus || "-"}
-        </p>
-        <p>
           <span className="text-muted-foreground">proximo pagamento:</span> {formatDatePtBr(subscription.nextPaymentDate)}
         </p>
         <p>

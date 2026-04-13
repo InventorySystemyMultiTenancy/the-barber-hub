@@ -4,7 +4,6 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import SubscriptionAttemptsList from "@/components/subscription/SubscriptionAttemptsList";
-import SubscriptionProviderEventsList from "@/components/subscription/SubscriptionProviderEventsList";
 import SubscriptionStatusPanel from "@/components/subscription/SubscriptionStatusPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscriptionPolling } from "@/hooks/useSubscriptionPolling";
@@ -146,7 +145,7 @@ export default function MySubscription() {
         <div>
           <h1 className="font-heading text-3xl font-bold">Minha assinatura</h1>
           <p className="text-muted-foreground mt-1">
-            Consulte status, proximo pagamento, tentativas de cobranca e eventos do provedor.
+            Consulte status, proximo pagamento e tentativas de cobranca.
           </p>
         </div>
 
@@ -177,7 +176,6 @@ export default function MySubscription() {
           <>
             <SubscriptionStatusPanel subscription={currentSubscription} />
             <SubscriptionAttemptsList attempts={currentSubscription.attempts || []} />
-            <SubscriptionProviderEventsList events={currentSubscription.providerEvents || []} />
 
             <div className="glass rounded-lg p-4 md:p-5">
               <Button

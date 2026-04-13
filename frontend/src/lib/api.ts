@@ -373,6 +373,7 @@ export function getFriendlyErrorMessage(error: unknown) {
   if (error.status === 401 || error.code === "AUTH_TOKEN_EXPIRED") return "Sessao expirada, faca login novamente.";
   if (error.status === 403 || error.code === "FORBIDDEN_ADMIN_ONLY") return "Acesso restrito.";
   if (error.status === 404) return "Recurso nao encontrado.";
+  if (error.code === "42P10") return "Erro interno ao salvar assinatura. O backend precisa ajustar uma constraint no banco.";
   if (error.code === "SLOT_ALREADY_BOOKED") return "Horario ja reservado. Escolha outro.";
   if (error.code === "SLOT_DISABLED") return "Esse horario esta desabilitado.";
   if (error.code === "DAY_DISABLED") return "Esse dia esta indisponivel para atendimento.";
