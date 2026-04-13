@@ -27,7 +27,7 @@ const Header = () => {
               <Link to="/meus-agendamentos">
                 <Button variant="ghost" size="sm" className="text-foreground hover:text-primary">
                   <span className="hidden sm:inline">Meus Horários</span>
-                  <span className="sm:hidden">Horários</span>
+                  <span className="sm:hidden">Horários:</span>
                 </Button>
               </Link>
               <Link to="/minha-assinatura">
