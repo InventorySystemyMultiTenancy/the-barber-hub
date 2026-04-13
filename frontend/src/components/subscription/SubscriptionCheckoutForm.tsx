@@ -35,7 +35,7 @@ export default function SubscriptionCheckoutForm({
           type="email"
           value={email}
           onChange={(event) => onEmailChange(event.target.value)}
-          placeholder="Email do assinante"
+          placeholder="Email do assinante:"
           required
         />
       </div>
