@@ -15,6 +15,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
   const [sdkReady, setSdkReady] = useState(false);
   const [loadingToken, setLoadingToken] = useState(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
+  const initializedRef = useRef(false);
+  const initialAmountRef = useRef(String(amount || 1));
   const onErrorRef = useRef(onError);
   const onTokenReceivedRef = useRef(onTokenReceived);
   const formIdRef = useRef(`mp-card-form-${Math.random().toString(36).slice(2)}`);
@@ -41,6 +43,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
   useEffect(() => {
     let mounted = true;
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     setSdkReady(false);
 
     const init = async () => {
@@ -54,7 +58,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
         if (!mounted) return;
 
         cardFormRef.current = client.cardForm({
-          amount: String(amount || 1),
+          amount: initialAmountRef.current,
           form: {
             id: formIdRef.current,
             cardholderName: { id: idsRef.current.cardholderName },
@@ -133,7 +137,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
         }
       }
     };
-  }, [amount]);
+  }, []);
 
   useEffect(() => {
     const emailInput = document.getElementById(idsRef.current.cardholderEmail) as HTMLInputElement | null;
