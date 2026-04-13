@@ -4,10 +4,6 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import SubscriptionAttemptsList from "@/components/subscription/SubscriptionAttemptsList";
-import SubscriptionStatusHistoryList, {
-  mapAttemptToStatusHistoryItem,
-  mapProviderEventToStatusHistoryItem,
-} from "@/components/subscription/SubscriptionStatusHistoryList";
 import SubscriptionStatusPanel from "@/components/subscription/SubscriptionStatusPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscriptionPlans } from "@/hooks/useSubscriptionPlans";
@@ -18,6 +14,7 @@ import { useSubscription } from "@/hooks/use-subscription";
 
 const ADMIN_STATUS_SET = new Set(["authorized", "canceled", "cancelled", "paused", "pending"]);
 const ADMIN_MESSAGE_HINTS = ["assinatura criada", "assinatura cancelada", "atualizacao de status", "status sync"];
+const AUTHORIZED_FINANCIAL_STATUS = ["authorized", "approved", "paid"];
 
 function isAdministrativeAttempt(attempt: SubscriptionAttempt) {
   const normalizedStatus = String(attempt.status || "").trim().toLowerCase();
@@ -36,7 +33,8 @@ function isFinancialAttempt(attempt: SubscriptionAttempt) {
   const amount = Number(attempt.amount);
   if (!Number.isFinite(amount) || amount <= 0) return false;
   if (isAdministrativeAttempt(attempt)) return false;
-  return true;
+  const merged = `${String(attempt.status || "")} ${String(attempt.providerStatus || "")}`.toLowerCase();
+  return AUTHORIZED_FINANCIAL_STATUS.some((status) => merged.includes(status));
 }
 
 export default function MySubscription() {
@@ -93,22 +91,6 @@ export default function MySubscription() {
     if (!currentSubscription) return [];
     return (currentSubscription.attempts || []).filter(isFinancialAttempt);
   }, [currentSubscription]);
-
-  const statusAttempts = useMemo(() => {
-    if (!currentSubscription) return [];
-    return (currentSubscription.attempts || []).filter((attempt) => !isFinancialAttempt(attempt));
-  }, [currentSubscription]);
-
-  const statusHistoryItems = useMemo(() => {
-    if (!currentSubscription) return [];
-
-    const fromAttempts = statusAttempts.map((attempt, index) => mapAttemptToStatusHistoryItem(attempt, index));
-    const fromProviderEvents = (currentSubscription.providerEvents || []).map((event, index) =>
-      mapProviderEventToStatusHistoryItem(event, index),
-    );
-
-    return [...fromProviderEvents, ...fromAttempts];
-  }, [currentSubscription, statusAttempts]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -242,7 +224,6 @@ export default function MySubscription() {
           <>
             <SubscriptionStatusPanel subscription={currentSubscription} planName={planDisplayName} />
             <SubscriptionAttemptsList attempts={financialAttempts} subscription={currentSubscription} />
-            <SubscriptionStatusHistoryList items={statusHistoryItems} />
 
             <div className="glass rounded-lg p-4 md:p-5">
               <Button

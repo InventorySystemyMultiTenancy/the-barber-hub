@@ -53,7 +53,7 @@ export default function SubscriptionAttemptsList({ attempts, subscription }: Sub
   if (!attempts.length) {
     return (
       <div className="glass rounded-lg p-5 text-muted-foreground">
-        Ainda nao houve tentativas de cobranca financeira para esta assinatura.
+        Ainda nao houve cobrancas autorizadas para esta assinatura.
       </div>
     );
   }
@@ -66,7 +66,7 @@ export default function SubscriptionAttemptsList({ attempts, subscription }: Sub
 
   return (
     <div className="glass rounded-lg p-5 space-y-3">
-      <p className="font-heading text-lg font-semibold">Tentativas de cobranca</p>
+      <p className="font-heading text-lg font-semibold">Historico de cobrancas autorizadas</p>
       <div className="space-y-2">
         {sortedAttempts.map((attempt, index) => (
           <div key={`${attempt.id || "attempt"}-${index}`} className="rounded-md border border-border/70 p-3 text-sm space-y-1">
