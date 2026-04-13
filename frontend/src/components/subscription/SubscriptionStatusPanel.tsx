@@ -46,9 +46,10 @@ function formatStatusLabel(value?: string) {
 
 type SubscriptionStatusPanelProps = {
   subscription: SubscriptionInfo;
+  planName?: string;
 };
 
-export default function SubscriptionStatusPanel({ subscription }: SubscriptionStatusPanelProps) {
+export default function SubscriptionStatusPanel({ subscription, planName }: SubscriptionStatusPanelProps) {
   const badgeClass =
     subscription.status === "authorized"
       ? "bg-green-500/20 text-green-500"
@@ -74,7 +75,7 @@ export default function SubscriptionStatusPanel({ subscription }: SubscriptionSt
           <span className="text-muted-foreground">proximo pagamento:</span> {formatDatePtBr(subscription.nextPaymentDate)}
         </p>
         <p>
-          <span className="text-muted-foreground">plano:</span> {subscription.preapprovalPlanId || "-"}
+          <span className="text-muted-foreground">plano:</span> {planName || "Plano nao identificado"}
         </p>
         <p>
           <span className="text-muted-foreground">valor:</span> {formatMoney(subscription.transactionAmount, subscription.currencyId || "BRL")}

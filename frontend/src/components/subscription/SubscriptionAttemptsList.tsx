@@ -1,7 +1,6 @@
 import type { SubscriptionAttempt, SubscriptionInfo } from "@/lib/api";
 
-function formatCurrency(value: number | null, currency = "BRL") {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
+function formatCurrency(value: number, currency = "BRL") {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency,
@@ -26,31 +25,15 @@ function translateStatus(value?: string) {
   return map[normalized] || value || "-";
 }
 
-function getAttemptDisplayAmount(
-  attempt: SubscriptionAttempt,
-  subscription: Pick<SubscriptionInfo, "transactionAmount" | "currencyId">,
-) {
-  const attemptAmount =
-    attempt.amount !== null && attempt.amount !== undefined && Number.isFinite(Number(attempt.amount))
-      ? Number(attempt.amount)
-      : null;
-
-  if (attemptAmount !== null) {
-    return { value: attemptAmount, isFallback: false };
+function getAttemptBadge(status?: string, providerStatus?: string) {
+  const merged = `${String(status || "")} ${String(providerStatus || "")}`.toLowerCase();
+  if (merged.includes("approved") || merged.includes("authorized") || merged.includes("paid")) {
+    return { label: "aprovado", className: "bg-green-500/20 text-green-500" };
   }
-
-  const subscriptionAmount =
-    subscription.transactionAmount !== null &&
-    subscription.transactionAmount !== undefined &&
-    Number.isFinite(Number(subscription.transactionAmount))
-      ? Number(subscription.transactionAmount)
-      : null;
-
-  if (subscriptionAmount !== null) {
-    return { value: subscriptionAmount, isFallback: true };
+  if (merged.includes("rejected") || merged.includes("refused") || merged.includes("denied") || merged.includes("cancel")) {
+    return { label: "recusado", className: "bg-destructive/20 text-destructive" };
   }
-
-  return { value: null, isFallback: false };
+  return { label: "pendente", className: "bg-amber-500/20 text-amber-500" };
 }
 
 function formatDatePtBr(value?: string) {
@@ -63,43 +46,50 @@ function formatDatePtBr(value?: string) {
 
 type SubscriptionAttemptsListProps = {
   attempts: SubscriptionAttempt[];
-  subscription: Pick<SubscriptionInfo, "transactionAmount" | "currencyId">;
+  subscription: Pick<SubscriptionInfo, "currencyId">;
 };
 
 export default function SubscriptionAttemptsList({ attempts, subscription }: SubscriptionAttemptsListProps) {
   if (!attempts.length) {
     return (
       <div className="glass rounded-lg p-5 text-muted-foreground">
-        Nenhuma tentativa de cobranca registrada.
+        Ainda nao houve tentativas de cobranca financeira para esta assinatura.
       </div>
     );
   }
+
+  const sortedAttempts = [...attempts].sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.paymentDate || 0).getTime();
+    const dateB = new Date(b.createdAt || b.paymentDate || 0).getTime();
+    return dateB - dateA;
+  });
 
   return (
     <div className="glass rounded-lg p-5 space-y-3">
       <p className="font-heading text-lg font-semibold">Tentativas de cobranca</p>
       <div className="space-y-2">
-        {attempts.map((attempt, index) => (
+        {sortedAttempts.map((attempt, index) => (
           <div key={`${attempt.id || "attempt"}-${index}`} className="rounded-md border border-border/70 p-3 text-sm space-y-1">
+            {(() => {
+              const badge = getAttemptBadge(attempt.status, attempt.providerStatus);
+              return <span className={`text-[11px] px-2 py-0.5 rounded-full ${badge.className}`}>{badge.label}</span>;
+            })()}
             <p>
               <span className="text-muted-foreground">status:</span> {translateStatus(attempt.status)}
             </p>
             <p>
               <span className="text-muted-foreground">provider_status:</span> {translateStatus(attempt.providerStatus)}
             </p>
-            {(() => {
-              const amount = getAttemptDisplayAmount(attempt, subscription);
-              const currency = subscription.currencyId || attempt.currencyId || "BRL";
-
-              return (
-                <p>
-                  <span className="text-muted-foreground">valor:</span> {formatCurrency(amount.value, currency)}
-                  {amount.isFallback ? <span className="ml-2 text-xs text-muted-foreground">valor do plano</span> : null}
-                </p>
-              );
-            })()}
             <p>
-              <span className="text-muted-foreground">data:</span> {formatDatePtBr(attempt.paymentDate)}
+              <span className="text-muted-foreground">valor:</span> {formatCurrency(Number(attempt.amount || 0), subscription.currencyId || attempt.currencyId || "BRL")}
+            </p>
+            {attempt.message ? (
+              <p>
+                <span className="text-muted-foreground">mensagem:</span> {attempt.message}
+              </p>
+            ) : null}
+            <p>
+              <span className="text-muted-foreground">data:</span> {formatDatePtBr(attempt.createdAt || attempt.paymentDate)}
             </p>
           </div>
         ))}

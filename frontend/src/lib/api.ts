@@ -309,7 +309,9 @@ export interface SubscriptionAttempt {
   amount?: number;
   currencyId?: string;
   paymentDate?: string;
+  createdAt?: string;
   providerStatus?: string;
+  message?: string;
   details?: unknown;
 }
 
@@ -318,6 +320,8 @@ export interface SubscriptionProviderEvent {
   type?: string;
   status?: string;
   date?: string;
+  createdAt?: string;
+  message?: string;
   data?: unknown;
 }
 
@@ -586,23 +590,29 @@ function normalizeSubscriptionPlan(raw: any): SubscriptionPlan {
 }
 
 function normalizeSubscriptionAttempt(raw: any): SubscriptionAttempt {
+  const createdAt = raw?.created_at ?? raw?.createdAt ?? raw?.payment_date ?? raw?.paymentDate ?? undefined;
   return {
     id: raw?.id ? String(raw.id) : undefined,
     status: raw?.status ?? raw?.attempt_status ?? undefined,
     amount: Number(raw?.amount ?? raw?.transaction_amount ?? 0) || undefined,
     currencyId: raw?.currency_id ?? raw?.currencyId ?? undefined,
-    paymentDate: raw?.payment_date ?? raw?.paymentDate ?? raw?.created_at ?? raw?.createdAt ?? undefined,
+    paymentDate: raw?.payment_date ?? raw?.paymentDate ?? createdAt,
+    createdAt,
     providerStatus: raw?.provider_status ?? raw?.providerStatus ?? undefined,
+    message: raw?.message ?? raw?.description ?? raw?.reason ?? undefined,
     details: raw?.details ?? raw?.payload ?? undefined,
   };
 }
 
 function normalizeSubscriptionProviderEvent(raw: any): SubscriptionProviderEvent {
+  const createdAt = raw?.created_at ?? raw?.createdAt ?? raw?.date ?? raw?.event_date ?? raw?.eventDate ?? undefined;
   return {
     id: raw?.id ? String(raw.id) : undefined,
     type: raw?.type ?? raw?.event_type ?? raw?.eventType ?? undefined,
     status: raw?.status ?? undefined,
-    date: raw?.date ?? raw?.event_date ?? raw?.eventDate ?? raw?.created_at ?? raw?.createdAt ?? undefined,
+    date: raw?.date ?? raw?.event_date ?? raw?.eventDate ?? createdAt,
+    createdAt,
+    message: raw?.message ?? raw?.description ?? raw?.reason ?? undefined,
     data: raw?.data ?? raw?.payload ?? raw?.details ?? undefined,
   };
 }

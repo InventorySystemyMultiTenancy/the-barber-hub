@@ -4,12 +4,40 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import SubscriptionAttemptsList from "@/components/subscription/SubscriptionAttemptsList";
+import SubscriptionStatusHistoryList, {
+  mapAttemptToStatusHistoryItem,
+  mapProviderEventToStatusHistoryItem,
+} from "@/components/subscription/SubscriptionStatusHistoryList";
 import SubscriptionStatusPanel from "@/components/subscription/SubscriptionStatusPanel";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSubscriptionPlans } from "@/hooks/useSubscriptionPlans";
 import { useSubscriptionPolling } from "@/hooks/useSubscriptionPolling";
 import { toast } from "@/hooks/use-toast";
-import { getFriendlyErrorMessage, type SubscriptionInfo } from "@/lib/api";
+import { getFriendlyErrorMessage, type SubscriptionAttempt, type SubscriptionInfo } from "@/lib/api";
 import { useSubscription } from "@/hooks/use-subscription";
+
+const ADMIN_STATUS_SET = new Set(["authorized", "canceled", "cancelled", "paused", "pending"]);
+const ADMIN_MESSAGE_HINTS = ["assinatura criada", "assinatura cancelada", "atualizacao de status", "status sync"];
+
+function isAdministrativeAttempt(attempt: SubscriptionAttempt) {
+  const normalizedStatus = String(attempt.status || "").trim().toLowerCase();
+  const normalizedProviderStatus = String(attempt.providerStatus || "").trim().toLowerCase();
+  const normalizedMessage = String(attempt.message || "").trim().toLowerCase();
+
+  const onlyAdminStatus =
+    (normalizedStatus && ADMIN_STATUS_SET.has(normalizedStatus)) ||
+    (normalizedProviderStatus && ADMIN_STATUS_SET.has(normalizedProviderStatus));
+  const adminMessage = ADMIN_MESSAGE_HINTS.some((hint) => normalizedMessage.includes(hint));
+
+  return Boolean(onlyAdminStatus && adminMessage);
+}
+
+function isFinancialAttempt(attempt: SubscriptionAttempt) {
+  const amount = Number(attempt.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  if (isAdministrativeAttempt(attempt)) return false;
+  return true;
+}
 
 export default function MySubscription() {
   const navigate = useNavigate();
@@ -17,6 +45,7 @@ export default function MySubscription() {
   const shouldStartPollingFromRedirect = searchParams.get("poll") === "1";
 
   const { user, loading: authLoading } = useAuth();
+  const { plans } = useSubscriptionPlans();
   const {
     currentSubscription,
     storedReference,
@@ -43,6 +72,43 @@ export default function MySubscription() {
       ).trim(),
     [manualReference, currentSubscription?.mpPreapprovalId, currentSubscription?.id, storedReference?.mpPreapprovalId, storedReference?.id],
   );
+
+  const planDisplayName = useMemo(() => {
+    if (!currentSubscription) return "";
+
+    const planId = String(currentSubscription.preapprovalPlanId || "").trim();
+    if (!planId) {
+      return currentSubscription.reason || "";
+    }
+
+    const matchedPlan = plans.find((plan) => {
+      const currentPlanId = String(plan.preapprovalPlanId || plan.id || "").trim();
+      return currentPlanId === planId;
+    });
+
+    return matchedPlan?.name || currentSubscription.reason || "";
+  }, [currentSubscription, plans]);
+
+  const financialAttempts = useMemo(() => {
+    if (!currentSubscription) return [];
+    return (currentSubscription.attempts || []).filter(isFinancialAttempt);
+  }, [currentSubscription]);
+
+  const statusAttempts = useMemo(() => {
+    if (!currentSubscription) return [];
+    return (currentSubscription.attempts || []).filter((attempt) => !isFinancialAttempt(attempt));
+  }, [currentSubscription]);
+
+  const statusHistoryItems = useMemo(() => {
+    if (!currentSubscription) return [];
+
+    const fromAttempts = statusAttempts.map((attempt, index) => mapAttemptToStatusHistoryItem(attempt, index));
+    const fromProviderEvents = (currentSubscription.providerEvents || []).map((event, index) =>
+      mapProviderEventToStatusHistoryItem(event, index),
+    );
+
+    return [...fromProviderEvents, ...fromAttempts];
+  }, [currentSubscription, statusAttempts]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -174,8 +240,9 @@ export default function MySubscription() {
 
         {currentSubscription ? (
           <>
-            <SubscriptionStatusPanel subscription={currentSubscription} />
-            <SubscriptionAttemptsList attempts={currentSubscription.attempts || []} subscription={currentSubscription} />
+            <SubscriptionStatusPanel subscription={currentSubscription} planName={planDisplayName} />
+            <SubscriptionAttemptsList attempts={financialAttempts} subscription={currentSubscription} />
+            <SubscriptionStatusHistoryList items={statusHistoryItems} />
 
             <div className="glass rounded-lg p-4 md:p-5">
               <Button
