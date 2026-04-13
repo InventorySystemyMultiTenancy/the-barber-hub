@@ -179,10 +179,19 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
       <p className="font-heading font-semibold">Dados do cartao (Mercado Pago)</p>
 
       <form id={formIdRef.current} className="space-y-2">
-        <div id={idsRef.current.cardNumber} className="h-10 rounded-md border border-input bg-background px-3 py-2" />
+        <div
+          id={idsRef.current.cardNumber}
+          className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+        />
         <div className="grid grid-cols-2 gap-2">
-          <div id={idsRef.current.expirationDate} className="h-10 rounded-md border border-input bg-background px-3 py-2" />
-          <div id={idsRef.current.securityCode} className="h-10 rounded-md border border-input bg-background px-3 py-2" />
+          <div
+            id={idsRef.current.expirationDate}
+            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+          />
+          <div
+            id={idsRef.current.securityCode}
+            className="relative min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 overflow-hidden cursor-text"
+          />
         </div>
         <input
           id={idsRef.current.cardholderName}
