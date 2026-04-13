@@ -8,6 +8,7 @@ let sdkErrorHandlerInstalled = false;
 
 export type MpCardFormInstance = {
   unmount?: () => void;
+  createCardToken?: () => Promise<unknown>;
   getCardFormData: () => {
     token?: string;
     paymentMethodId?: string;

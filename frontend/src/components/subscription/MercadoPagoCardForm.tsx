@@ -176,9 +176,22 @@ export default function MercadoPagoCardForm({
               lastSdkErrorsRef.current = [];
 
               try {
+                if (cardFormRef.current?.createCardToken) {
+                  await cardFormRef.current.createCardToken();
+                }
+
                 const formData = cardFormRef.current?.getCardFormData();
                 const token = String(formData?.token || "").trim();
                 const email = String(formData?.cardholderEmail || "").trim();
+
+                console.info("[MercadoPagoCardForm] tokenization attempt", {
+                  tokenLength: token.length,
+                  paymentMethodId: formData?.paymentMethodId || null,
+                  issuerId: formData?.issuerId || null,
+                  installments: formData?.installments || null,
+                  identificationType: formData?.identificationType || null,
+                  hasIdentificationNumber: Boolean(String(formData?.identificationNumber || "").trim()),
+                });
 
                 if (hasBlockingSdkErrors()) {
                   onErrorRef.current("Dados do cartao invalidos. Revise numero, validade e CVV para gerar o token.");
