@@ -30,6 +30,12 @@ const Header = () => {
                   <span className="sm:hidden">Horários</span>
                 </Button>
               </Link>
+              <Link to="/minha-assinatura">
+                <Button variant="ghost" size="sm" className="text-foreground hover:text-primary">
+                  <span className="hidden sm:inline">Minha assinatura</span>
+                  <span className="sm:hidden">Assinatura</span>
+                </Button>
+              </Link>
               {isAdmin && (
                 <Link to="/admin">
                   <Button variant="ghost" size="sm" className="gap-2 text-primary">

@@ -266,6 +266,51 @@ export interface PaymentStatusResponse {
   paymentIntentId?: string;
 }
 
+export type SubscriptionStatus = "authorized" | "pending" | "paused" | "canceled" | "unknown";
+
+export interface SubscriptionPlanPayload {
+  reason?: string;
+  transaction_amount: number;
+  frequency?: number;
+  frequency_type?: "days" | "months";
+  currency_id?: string;
+  back_url?: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  reason?: string;
+  transactionAmount: number;
+  frequency?: number;
+  frequencyType?: "days" | "months";
+  currencyId?: string;
+  backUrl?: string;
+}
+
+export interface CreateSubscriptionPayload {
+  preapproval_plan_id: string;
+  token: string;
+  email: string;
+  reason?: string;
+  back_url?: string;
+  status?: "authorized";
+}
+
+export interface SubscriptionInfo {
+  id: string;
+  mpPreapprovalId?: string;
+  preapprovalPlanId?: string;
+  status: SubscriptionStatus;
+  providerStatus?: string;
+  nextPaymentDate?: string;
+  reason?: string;
+  transactionAmount?: number;
+  currencyId?: string;
+  frequency?: number;
+  frequencyType?: "days" | "months";
+  email?: string;
+}
+
 function getStoredToken() {
   return localStorage.getItem(SESSION_TOKEN_KEY);
 }
@@ -481,6 +526,65 @@ function normalizePaymentStatus(statusRaw: unknown): PaymentStatus {
   if (normalized === "rejected") return "rejected";
   if (normalized === "canceled" || normalized === "cancelled") return "canceled";
   return "pending";
+}
+
+function normalizeSubscriptionStatus(statusRaw: unknown): SubscriptionStatus {
+  const normalized = String(statusRaw || "").toLowerCase();
+  if (normalized === "authorized" || normalized === "active") return "authorized";
+  if (normalized === "pending") return "pending";
+  if (normalized === "paused") return "paused";
+  if (normalized === "canceled" || normalized === "cancelled") return "canceled";
+  return "unknown";
+}
+
+function normalizeSubscriptionPlan(raw: any): SubscriptionPlan {
+  const transactionAmount = Number(raw?.transaction_amount ?? raw?.transactionAmount ?? 0);
+
+  return {
+    id: String(raw?.id ?? raw?.preapproval_plan_id ?? raw?.preapprovalPlanId ?? ""),
+    reason: raw?.reason ?? undefined,
+    transactionAmount,
+    frequency: Number(raw?.frequency ?? 0) || undefined,
+    frequencyType: raw?.frequency_type ?? raw?.frequencyType ?? undefined,
+    currencyId: raw?.currency_id ?? raw?.currencyId ?? undefined,
+    backUrl: raw?.back_url ?? raw?.backUrl ?? undefined,
+  };
+}
+
+function normalizeSubscriptionInfo(raw: any): SubscriptionInfo {
+  const source = raw?.subscription ?? raw?.preapproval ?? raw;
+
+  const id = String(source?.id ?? source?.subscription_id ?? source?.subscriptionId ?? source?.preapproval_id ?? source?.preapprovalId ?? "");
+  const mpPreapprovalId =
+    source?.mp_preapproval_id ??
+    source?.mpPreapprovalId ??
+    source?.preapproval_id ??
+    source?.preapprovalId ??
+    source?.provider_reference ??
+    source?.providerReference ??
+    undefined;
+
+  const nextPaymentDateRaw =
+    source?.next_payment_date ??
+    source?.nextPaymentDate ??
+    source?.next_payment_at ??
+    source?.nextPaymentAt ??
+    undefined;
+
+  return {
+    id,
+    mpPreapprovalId: mpPreapprovalId ? String(mpPreapprovalId) : undefined,
+    preapprovalPlanId: source?.preapproval_plan_id ?? source?.preapprovalPlanId ?? undefined,
+    status: normalizeSubscriptionStatus(source?.status),
+    providerStatus: source?.provider_status ?? source?.providerStatus ?? undefined,
+    nextPaymentDate: nextPaymentDateRaw ? String(nextPaymentDateRaw) : undefined,
+    reason: source?.reason ?? source?.description ?? undefined,
+    transactionAmount: Number(source?.transaction_amount ?? source?.transactionAmount ?? 0) || undefined,
+    currencyId: source?.currency_id ?? source?.currencyId ?? undefined,
+    frequency: Number(source?.frequency ?? 0) || undefined,
+    frequencyType: source?.frequency_type ?? source?.frequencyType ?? undefined,
+    email: source?.email ?? source?.payer_email ?? source?.payerEmail ?? undefined,
+  };
 }
 
 function normalizePixPaymentResponse(raw: any): PixPaymentResponse {
@@ -1250,4 +1354,75 @@ export async function cancelPayment(reference: string): Promise<PaymentStatusRes
 
     throw error;
   }
+}
+
+export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): Promise<SubscriptionPlan> {
+  const data = await apiRequest<any>(
+    "/api/payments/subscriptions/plans",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
+}
+
+export async function createSubscription(payload: CreateSubscriptionPayload): Promise<SubscriptionInfo> {
+  const safePlanId = String(payload.preapproval_plan_id || "").trim();
+  const safeToken = String(payload.token || "").trim();
+  const safeEmail = String(payload.email || "").trim();
+
+  if (!safePlanId || !safeToken || !safeEmail) {
+    throw new ApiClientError("Plano, token e email sao obrigatorios.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    "/api/payments/subscriptions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        preapproval_plan_id: safePlanId,
+        token: safeToken,
+        email: safeEmail,
+        reason: payload.reason || undefined,
+        back_url: payload.back_url || undefined,
+        status: payload.status || "authorized",
+      }),
+    },
+    true,
+  );
+
+  return normalizeSubscriptionInfo(data);
+}
+
+export async function getSubscription(reference: string): Promise<SubscriptionInfo> {
+  const safeReference = String(reference || "").trim();
+  if (!safeReference) {
+    throw new ApiClientError("Referencia da assinatura e obrigatoria.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    `/api/payments/subscriptions/${encodeURIComponent(safeReference)}`,
+    { method: "GET" },
+    true,
+  );
+
+  return normalizeSubscriptionInfo(data);
+}
+
+export async function cancelSubscription(reference: string): Promise<SubscriptionInfo> {
+  const safeReference = String(reference || "").trim();
+  if (!safeReference) {
+    throw new ApiClientError("Referencia da assinatura e obrigatoria.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    `/api/payments/subscriptions/${encodeURIComponent(safeReference)}/cancel`,
+    { method: "POST" },
+    true,
+  );
+
+  return normalizeSubscriptionInfo(data);
 }
