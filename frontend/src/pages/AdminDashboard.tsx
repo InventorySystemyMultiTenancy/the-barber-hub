@@ -238,7 +238,6 @@ const AdminDashboard = () => {
   const [planName, setPlanName] = useState("Plano Mensal");
   const [planDescription, setPlanDescription] = useState("Assinatura mensal premium");
   const [planAmount, setPlanAmount] = useState("29.90");
-  const [planBackUrl, setPlanBackUrl] = useState(defaultPlanBackUrl);
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -967,7 +966,7 @@ const AdminDashboard = () => {
         frequency: 1,
         frequency_type: "months",
         currency_id: "BRL",
-        back_url: planBackUrl.trim() || defaultPlanBackUrl,
+        back_url: defaultPlanBackUrl,
       });
 
       toast({
@@ -978,7 +977,6 @@ const AdminDashboard = () => {
       setPlanName("Plano Mensal");
       setPlanDescription("Assinatura mensal premium");
       setPlanAmount("29.90");
-      setPlanBackUrl(defaultPlanBackUrl);
       await loadAdminSubscriptionPlans();
     } catch (error) {
       if (handleAdminApiError(error)) return;
@@ -1434,13 +1432,6 @@ const AdminDashboard = () => {
                   placeholder="Valor mensal"
                   required
                 />
-                <Input
-                  value={planBackUrl}
-                  onChange={(event) => setPlanBackUrl(event.target.value)}
-                  placeholder="Back URL (opcional)"
-                />
-
-                <p className="text-xs text-muted-foreground">Padrao aplicado: frequencia mensal, BRL.</p>
 
                 <Button type="submit" disabled={planSubmitting}>
                   {planSubmitting ? "Criando plano..." : "Criar plano mensal"}

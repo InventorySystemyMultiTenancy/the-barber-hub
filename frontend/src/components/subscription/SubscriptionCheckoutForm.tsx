@@ -64,7 +64,7 @@ export default function SubscriptionCheckoutForm({
         </p>
 
         <Button type="submit" disabled={loading} className="w-full sm:w-auto">
-          {loading ? "Criando assinatura..." : "Criar assinatura"}
+          {loading ? "Criando assinatura..." : "Assinar plano selecionado"}
         </Button>
       </form>
     </div>
