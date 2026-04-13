@@ -6,6 +6,7 @@ const rawApiBaseUrl =
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, "");
 export const hasApiBaseUrl = API_BASE_URL.length > 0;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const ENABLE_API_DEBUG = import.meta.env.DEV || import.meta.env.VITE_API_DEBUG === "true";
 
 export const SESSION_TOKEN_KEY = "session_token";
 export const SESSION_USER_KEY = "session_user";
@@ -36,6 +37,11 @@ export class ApiClientError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+function logApiDebug(message: string, context?: Record<string, unknown>) {
+  if (!ENABLE_API_DEBUG) return;
+  console.error(`[API DEBUG] ${message}`, context || {});
 }
 
 export interface SessionUser {
@@ -921,6 +927,12 @@ async function parseResponse<T>(response: Response): Promise<T> {
   const raw = hasBody ? await response.json().catch(() => null) : null;
 
   if (!response.ok) {
+    logApiDebug("HTTP error response", {
+      url: response.url,
+      status: response.status,
+      body: raw,
+    });
+
     const apiError = (raw as ApiFailure | null)?.error;
     throw new ApiClientError(
       apiError?.message || `Request failed with status ${response.status}`,
@@ -984,6 +996,11 @@ async function apiRequest<T>(path: string, init?: RequestInit, requiresAuth = tr
       throw new ApiClientError("Tempo limite excedido na requisicao.", 0, "REQUEST_TIMEOUT");
     }
 
+    logApiDebug("Network error", {
+      path,
+      method: init?.method || "GET",
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw new ApiClientError("Falha de conexao com backend.", 0, "BACKEND_UNAVAILABLE", error);
   } finally {
     window.clearTimeout(timeoutId);
@@ -1432,6 +1449,11 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
   };
 
   try {
+    logApiDebug("Creating subscription plan (modern payload)", {
+      endpoint: "/api/payments/subscriptions/plans",
+      payload: modernBody,
+    });
+
     const data = await apiRequest<any>(
       "/api/payments/subscriptions/plans",
       {
@@ -1443,6 +1465,13 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
 
     return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
   } catch (error) {
+    logApiDebug("Create plan failed with modern payload", {
+      status: error instanceof ApiClientError ? error.status : undefined,
+      code: error instanceof ApiClientError ? error.code : undefined,
+      message: error instanceof Error ? error.message : String(error),
+      details: error instanceof ApiClientError ? error.details : undefined,
+    });
+
     const shouldRetryLegacy =
       error instanceof ApiClientError &&
       error.status === 400 &&
@@ -1461,6 +1490,11 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
       back_url: payload.back_url || undefined,
     };
 
+    logApiDebug("Retry creating subscription plan (legacy payload)", {
+      endpoint: "/api/payments/subscriptions/plans",
+      payload: legacyBody,
+    });
+
     const fallbackData = await apiRequest<any>(
       "/api/payments/subscriptions/plans",
       {
@@ -1475,6 +1509,10 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
 }
 
 export async function getAdminSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+  logApiDebug("Fetching admin subscription plans", {
+    endpoint: "/api/payments/subscriptions/plans",
+  });
+
   const data = await apiRequest<any>(
     `/api/payments/subscriptions/plans?_t=${Date.now()}`,
     { method: "GET" },
@@ -1490,6 +1528,11 @@ export async function toggleSubscriptionPlan(reference: string, isActive: boolea
   if (!safeReference) {
     throw new ApiClientError("Referencia do plano e obrigatoria.", 400, "VALIDATION_ERROR");
   }
+
+  logApiDebug("Toggling subscription plan", {
+    endpoint: `/api/payments/subscriptions/plans/${safeReference}`,
+    is_active: isActive,
+  });
 
   const data = await apiRequest<any>(
     `/api/payments/subscriptions/plans/${encodeURIComponent(safeReference)}`,
