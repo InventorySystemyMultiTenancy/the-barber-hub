@@ -15,6 +15,8 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
   const [sdkReady, setSdkReady] = useState(false);
   const [loadingToken, setLoadingToken] = useState(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
+  const onErrorRef = useRef(onError);
+  const onTokenReceivedRef = useRef(onTokenReceived);
   const formIdRef = useRef(`mp-card-form-${Math.random().toString(36).slice(2)}`);
 
   const idsRef = useRef({
@@ -30,11 +32,20 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
   });
 
   useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onTokenReceivedRef.current = onTokenReceived;
+  }, [onTokenReceived]);
+
+  useEffect(() => {
     let mounted = true;
+    setSdkReady(false);
 
     const init = async () => {
       if (!PUBLIC_KEY) {
-        onError("Configure VITE_MERCADO_PAGO_PUBLIC_KEY para tokenizar cartao.");
+        onErrorRef.current("Configure VITE_MERCADO_PAGO_PUBLIC_KEY para tokenizar cartao.");
         return;
       }
 
@@ -59,7 +70,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           callbacks: {
             onFormMounted: (error) => {
               if (error) {
-                onError("Nao foi possivel inicializar o formulario de cartao.");
+                onErrorRef.current("Nao foi possivel inicializar o formulario de cartao.");
                 return;
               }
               setSdkReady(true);
@@ -74,16 +85,16 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
                 const email = String(formData?.cardholderEmail || "").trim();
 
                 if (!token) {
-                  onError("Token do cartao nao foi gerado. Revise os dados e tente novamente.");
+                  onErrorRef.current("Token do cartao nao foi gerado. Revise os dados e tente novamente.");
                   return;
                 }
 
                 if (!email) {
-                  onError("Email do titular e obrigatorio para assinatura.");
+                  onErrorRef.current("Email do titular e obrigatorio para assinatura.");
                   return;
                 }
 
-                onTokenReceived(token, email);
+                onTokenReceivedRef.current(token, email);
               } finally {
                 setLoadingToken(false);
               }
@@ -92,19 +103,29 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           },
         });
       } catch (error) {
-        onError(error instanceof Error ? error.message : "Falha ao carregar Mercado Pago.");
+        onErrorRef.current(error instanceof Error ? error.message : "Falha ao carregar Mercado Pago.");
       }
     };
 
-    init();
+    void init();
 
     return () => {
       mounted = false;
-      if (cardFormRef.current?.unmount) {
-        cardFormRef.current.unmount();
+      const currentForm = cardFormRef.current;
+      cardFormRef.current = null;
+
+      if (currentForm?.unmount) {
+        try {
+          currentForm.unmount();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.includes("CardForm is not mounted")) {
+            throw error;
+          }
+        }
       }
     };
-  }, [amount, onError, onTokenReceived]);
+  }, [amount]);
 
   useEffect(() => {
     const emailInput = document.getElementById(idsRef.current.cardholderEmail) as HTMLInputElement | null;
