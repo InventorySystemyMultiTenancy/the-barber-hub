@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   cancelSubscription,
   createSubscription,
@@ -17,7 +17,7 @@ export type StoredSubscriptionReference = {
   transactionAmount?: number;
 };
 
-function readStoredReference(): StoredSubscriptionReference | null {
+export function readStoredReference(): StoredSubscriptionReference | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
 
@@ -28,11 +28,11 @@ function readStoredReference(): StoredSubscriptionReference | null {
   }
 }
 
-function writeStoredReference(value: StoredSubscriptionReference) {
+export function writeStoredReference(value: StoredSubscriptionReference) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
-function toStoredReference(info: SubscriptionInfo): StoredSubscriptionReference {
+export function toStoredReference(info: SubscriptionInfo): StoredSubscriptionReference {
   return {
     id: info.id || undefined,
     mpPreapprovalId: info.mpPreapprovalId || undefined,
@@ -40,6 +40,10 @@ function toStoredReference(info: SubscriptionInfo): StoredSubscriptionReference 
     reason: info.reason || undefined,
     transactionAmount: info.transactionAmount,
   };
+}
+
+export function persistSubscriptionReference(info: SubscriptionInfo) {
+  writeStoredReference(toStoredReference(info));
 }
 
 function getBestReference(stored: StoredSubscriptionReference | null) {
@@ -67,11 +71,21 @@ export function useSubscription() {
 
   const storedReference = useMemo(() => readStoredReference(), [currentSubscription]);
 
-  const persistReferenceFromSubscription = (subscription: SubscriptionInfo) => {
+  const persistReferenceFromSubscription = useCallback((subscription: SubscriptionInfo) => {
     writeStoredReference(toStoredReference(subscription));
-  };
+  }, []);
 
-  const createNewSubscription = async (payload: CreateSubscriptionPayload) => {
+  const setCurrentSubscriptionValue = useCallback(
+    (subscription: SubscriptionInfo | null) => {
+      setCurrentSubscription(subscription);
+      if (subscription) {
+        persistReferenceFromSubscription(subscription);
+      }
+    },
+    [persistReferenceFromSubscription],
+  );
+
+  const createNewSubscription = useCallback(async (payload: CreateSubscriptionPayload) => {
     setCreateLoading(true);
     try {
       const subscription = await createSubscription(payload);
@@ -81,9 +95,9 @@ export function useSubscription() {
     } finally {
       setCreateLoading(false);
     }
-  };
+  }, [persistReferenceFromSubscription]);
 
-  const fetchCurrentSubscription = async (reference?: string) => {
+  const fetchCurrentSubscription = useCallback(async (reference?: string) => {
     const resolvedReference = String(reference || getBestReference(readStoredReference()) || "").trim();
     if (!resolvedReference) return null;
 
@@ -96,9 +110,9 @@ export function useSubscription() {
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, [persistReferenceFromSubscription]);
 
-  const cancelCurrentSubscription = async (reference?: string) => {
+  const cancelCurrentSubscription = useCallback(async (reference?: string) => {
     const resolvedReference = String(reference || getBestReference(readStoredReference()) || "").trim();
     if (!resolvedReference) return null;
 
@@ -111,7 +125,7 @@ export function useSubscription() {
     } finally {
       setCancelLoading(false);
     }
-  };
+  }, [persistReferenceFromSubscription]);
 
   return {
     createLoading,
@@ -123,5 +137,6 @@ export function useSubscription() {
     fetchCurrentSubscription,
     cancelCurrentSubscription,
     persistReferenceFromSubscription,
+    setCurrentSubscriptionValue,
   };
 }

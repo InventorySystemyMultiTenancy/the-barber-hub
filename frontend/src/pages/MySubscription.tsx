@@ -1,16 +1,22 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import SubscriptionStatusCard from "@/components/subscription/SubscriptionStatusCard";
+import SubscriptionAttemptsList from "@/components/subscription/SubscriptionAttemptsList";
+import SubscriptionProviderEventsList from "@/components/subscription/SubscriptionProviderEventsList";
+import SubscriptionStatusPanel from "@/components/subscription/SubscriptionStatusPanel";
 import { useAuth } from "@/contexts/AuthContext";
-import { getFriendlyErrorMessage } from "@/lib/api";
+import { useSubscriptionPolling } from "@/hooks/useSubscriptionPolling";
 import { toast } from "@/hooks/use-toast";
+import { getFriendlyErrorMessage, type SubscriptionInfo } from "@/lib/api";
 import { useSubscription } from "@/hooks/use-subscription";
 
 export default function MySubscription() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const shouldStartPollingFromRedirect = searchParams.get("poll") === "1";
+
   const { user, loading: authLoading } = useAuth();
   const {
     currentSubscription,
@@ -19,9 +25,25 @@ export default function MySubscription() {
     cancelLoading,
     fetchCurrentSubscription,
     cancelCurrentSubscription,
+    persistReferenceFromSubscription,
+    setCurrentSubscriptionValue,
   } = useSubscription();
 
   const [manualReference, setManualReference] = useState("");
+  const [lastError, setLastError] = useState<string | null>(null);
+
+  const activeReference = useMemo(
+    () =>
+      String(
+        manualReference ||
+          currentSubscription?.mpPreapprovalId ||
+          currentSubscription?.id ||
+          storedReference?.mpPreapprovalId ||
+          storedReference?.id ||
+          "",
+      ).trim(),
+    [manualReference, currentSubscription?.mpPreapprovalId, currentSubscription?.id, storedReference?.mpPreapprovalId, storedReference?.id],
+  );
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -30,21 +52,20 @@ export default function MySubscription() {
     }
 
     if (user) {
-      void fetchCurrentSubscription();
+      void fetchCurrentSubscription().catch((error) => {
+        setLastError(getFriendlyErrorMessage(error));
+      });
     }
-  }, [authLoading, user, navigate]);
+  }, [authLoading, user, navigate, fetchCurrentSubscription]);
 
   const handleFetch = async (event?: FormEvent) => {
     event?.preventDefault();
+    setLastError(null);
 
     try {
       const subscription = await fetchCurrentSubscription(manualReference);
       if (!subscription) {
-        toast({
-          title: "Referencia obrigatoria",
-          description: "Informe uma referencia ou crie uma assinatura primeiro.",
-          variant: "destructive",
-        });
+        setLastError("Informe uma referencia ou crie uma assinatura primeiro.");
         return;
       }
 
@@ -53,9 +74,11 @@ export default function MySubscription() {
         description: `Status atual: ${subscription.status}`,
       });
     } catch (error) {
+      const message = getFriendlyErrorMessage(error);
+      setLastError(message);
       toast({
         title: "Erro ao consultar assinatura",
-        description: getFriendlyErrorMessage(error),
+        description: message,
         variant: "destructive",
       });
     }
@@ -65,14 +88,12 @@ export default function MySubscription() {
     const confirmed = window.confirm("Deseja cancelar sua assinatura?");
     if (!confirmed) return;
 
+    setLastError(null);
+
     try {
       const canceled = await cancelCurrentSubscription(manualReference);
       if (!canceled) {
-        toast({
-          title: "Referencia obrigatoria",
-          description: "Nao foi possivel encontrar referencia para cancelamento.",
-          variant: "destructive",
-        });
+        setLastError("Nao foi possivel encontrar referencia para cancelamento.");
         return;
       }
 
@@ -81,13 +102,34 @@ export default function MySubscription() {
         description: `Status atual: ${canceled.status}`,
       });
     } catch (error) {
+      const message = getFriendlyErrorMessage(error);
+      setLastError(message);
       toast({
         title: "Erro ao cancelar assinatura",
-        description: getFriendlyErrorMessage(error),
+        description: message,
         variant: "destructive",
       });
     }
   };
+
+  const handlePollingTick = useCallback(
+    (subscription: SubscriptionInfo) => {
+      setCurrentSubscriptionValue(subscription);
+      persistReferenceFromSubscription(subscription);
+      setLastError(null);
+    },
+    [persistReferenceFromSubscription, setCurrentSubscriptionValue],
+  );
+
+  useSubscriptionPolling({
+    reference: activeReference,
+    enabled: Boolean(activeReference) && (shouldStartPollingFromRedirect || currentSubscription?.status === "pending"),
+    initialStatus: currentSubscription?.status,
+    onTick: handlePollingTick,
+    onError: (error) => {
+      setLastError(getFriendlyErrorMessage(error));
+    },
+  });
 
   if (authLoading) {
     return (
@@ -100,10 +142,12 @@ export default function MySubscription() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <div className="container mx-auto max-w-3xl px-4 pt-24 pb-16 space-y-5">
+      <div className="container mx-auto max-w-4xl px-4 pt-24 pb-16 space-y-5">
         <div>
           <h1 className="font-heading text-3xl font-bold">Minha assinatura</h1>
-          <p className="text-muted-foreground mt-1">Acompanhe status, proximo pagamento e cancele quando precisar.</p>
+          <p className="text-muted-foreground mt-1">
+            Consulte status, proximo pagamento, tentativas de cobranca e eventos do provedor.
+          </p>
         </div>
 
         <form onSubmit={handleFetch} className="glass rounded-lg p-4 md:p-5 space-y-3">
@@ -117,17 +161,23 @@ export default function MySubscription() {
             Referencia salva: {storedReference?.mpPreapprovalId || storedReference?.id || "-"}
           </p>
 
+          {lastError ? <p className="text-sm text-destructive">{lastError}</p> : null}
+
           <div className="flex flex-col sm:flex-row gap-2">
             <Button type="submit" disabled={fetchLoading}>
               {fetchLoading ? "Consultando..." : "Consultar"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => navigate("/assinatura")}>Nova assinatura</Button>
+            <Button type="button" variant="outline" onClick={() => navigate("/assinatura")}>
+              Nova assinatura
+            </Button>
           </div>
         </form>
 
         {currentSubscription ? (
           <>
-            <SubscriptionStatusCard subscription={currentSubscription} />
+            <SubscriptionStatusPanel subscription={currentSubscription} />
+            <SubscriptionAttemptsList attempts={currentSubscription.attempts || []} />
+            <SubscriptionProviderEventsList events={currentSubscription.providerEvents || []} />
 
             <div className="glass rounded-lg p-4 md:p-5">
               <Button

@@ -279,6 +279,9 @@ export interface SubscriptionPlanPayload {
 
 export interface SubscriptionPlan {
   id: string;
+  name?: string;
+  description?: string;
+  preapprovalPlanId?: string;
   reason?: string;
   transactionAmount: number;
   frequency?: number;
@@ -291,9 +294,24 @@ export interface CreateSubscriptionPayload {
   preapproval_plan_id: string;
   token: string;
   email: string;
-  reason?: string;
-  back_url?: string;
-  status?: "authorized";
+}
+
+export interface SubscriptionAttempt {
+  id?: string;
+  status?: string;
+  amount?: number;
+  currencyId?: string;
+  paymentDate?: string;
+  providerStatus?: string;
+  details?: unknown;
+}
+
+export interface SubscriptionProviderEvent {
+  id?: string;
+  type?: string;
+  status?: string;
+  date?: string;
+  data?: unknown;
 }
 
 export interface SubscriptionInfo {
@@ -309,6 +327,8 @@ export interface SubscriptionInfo {
   frequency?: number;
   frequencyType?: "days" | "months";
   email?: string;
+  attempts: SubscriptionAttempt[];
+  providerEvents: SubscriptionProviderEvent[];
 }
 
 function getStoredToken() {
@@ -343,15 +363,18 @@ export function getFriendlyErrorMessage(error: unknown) {
 
   if (error.status === 0) return "Backend indisponivel no momento.";
   if (error.code === "REQUEST_TIMEOUT") return "A requisicao demorou demais. Tente novamente.";
-  if (error.status === 401 || error.code === "AUTH_TOKEN_EXPIRED") return "Sessao expirada. Faça login novamente.";
-  if (error.status === 403 || error.code === "FORBIDDEN_ADMIN_ONLY") return "Voce nao tem permissao para esta acao.";
+  if (error.status === 401 || error.code === "AUTH_TOKEN_EXPIRED") return "Sessao expirada, faca login novamente.";
+  if (error.status === 403 || error.code === "FORBIDDEN_ADMIN_ONLY") return "Acesso restrito.";
   if (error.status === 404) return "Recurso nao encontrado.";
   if (error.code === "SLOT_ALREADY_BOOKED") return "Horario ja reservado. Escolha outro.";
   if (error.code === "SLOT_DISABLED") return "Esse horario esta desabilitado.";
   if (error.code === "DAY_DISABLED") return "Esse dia esta indisponivel para atendimento.";
   if (error.code === "PAST_APPOINTMENT") return "Nao e permitido agendar horario passado no dia atual.";
   if (error.code === "PAID_APPOINTMENT_CANNOT_CANCEL") return "Nao e permitido cancelar um agendamento pago.";
-  if (error.code === "VALIDATION_ERROR") return "Dados invalidos para esta operacao.";
+  if (error.code === "VALIDATION_ERROR") return "Revise os dados e tente novamente.";
+  if (error.code === "SUBSCRIPTION_NOT_FOUND") return "Assinatura nao encontrada.";
+  if (error.code === "SUBSCRIPTION_ALREADY_CANCELED") return "Essa assinatura ja foi cancelada.";
+  if (error.code === "PROVIDER_UNAVAILABLE") return "Provedor indisponivel, tente em instantes.";
   if (error.code === "INVALID_SERVICE_TYPE") return "Servico invalido. Recarregue e selecione novamente.";
 
   return error.message || "Erro inesperado ao comunicar com o backend.";
@@ -542,12 +565,37 @@ function normalizeSubscriptionPlan(raw: any): SubscriptionPlan {
 
   return {
     id: String(raw?.id ?? raw?.preapproval_plan_id ?? raw?.preapprovalPlanId ?? ""),
+    name: raw?.name ?? undefined,
+    description: raw?.description ?? undefined,
+    preapprovalPlanId: raw?.preapproval_plan_id ?? raw?.preapprovalPlanId ?? raw?.id ?? undefined,
     reason: raw?.reason ?? undefined,
     transactionAmount,
     frequency: Number(raw?.frequency ?? 0) || undefined,
     frequencyType: raw?.frequency_type ?? raw?.frequencyType ?? undefined,
     currencyId: raw?.currency_id ?? raw?.currencyId ?? undefined,
     backUrl: raw?.back_url ?? raw?.backUrl ?? undefined,
+  };
+}
+
+function normalizeSubscriptionAttempt(raw: any): SubscriptionAttempt {
+  return {
+    id: raw?.id ? String(raw.id) : undefined,
+    status: raw?.status ?? raw?.attempt_status ?? undefined,
+    amount: Number(raw?.amount ?? raw?.transaction_amount ?? 0) || undefined,
+    currencyId: raw?.currency_id ?? raw?.currencyId ?? undefined,
+    paymentDate: raw?.payment_date ?? raw?.paymentDate ?? raw?.created_at ?? raw?.createdAt ?? undefined,
+    providerStatus: raw?.provider_status ?? raw?.providerStatus ?? undefined,
+    details: raw?.details ?? raw?.payload ?? undefined,
+  };
+}
+
+function normalizeSubscriptionProviderEvent(raw: any): SubscriptionProviderEvent {
+  return {
+    id: raw?.id ? String(raw.id) : undefined,
+    type: raw?.type ?? raw?.event_type ?? raw?.eventType ?? undefined,
+    status: raw?.status ?? undefined,
+    date: raw?.date ?? raw?.event_date ?? raw?.eventDate ?? raw?.created_at ?? raw?.createdAt ?? undefined,
+    data: raw?.data ?? raw?.payload ?? raw?.details ?? undefined,
   };
 }
 
@@ -571,6 +619,13 @@ function normalizeSubscriptionInfo(raw: any): SubscriptionInfo {
     source?.nextPaymentAt ??
     undefined;
 
+  const attempts = extractCollection(source, ["attempts", "payment_attempts", "paymentAttempts"]).map(
+    normalizeSubscriptionAttempt,
+  );
+  const providerEvents = extractCollection(source, ["provider_events", "providerEvents", "events"]).map(
+    normalizeSubscriptionProviderEvent,
+  );
+
   return {
     id,
     mpPreapprovalId: mpPreapprovalId ? String(mpPreapprovalId) : undefined,
@@ -584,6 +639,8 @@ function normalizeSubscriptionInfo(raw: any): SubscriptionInfo {
     frequency: Number(source?.frequency ?? 0) || undefined,
     frequencyType: source?.frequency_type ?? source?.frequencyType ?? undefined,
     email: source?.email ?? source?.payer_email ?? source?.payerEmail ?? undefined,
+    attempts,
+    providerEvents,
   };
 }
 
@@ -1386,15 +1443,25 @@ export async function createSubscription(payload: CreateSubscriptionPayload): Pr
         preapproval_plan_id: safePlanId,
         token: safeToken,
         email: safeEmail,
-        reason: payload.reason || undefined,
-        back_url: payload.back_url || undefined,
-        status: payload.status || "authorized",
       }),
     },
     true,
   );
 
   return normalizeSubscriptionInfo(data);
+}
+
+export async function getPublicSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+  const data = await apiRequest<any>(
+    `/api/payments/subscriptions/plans/public?_t=${Date.now()}`,
+    { method: "GET" },
+    false,
+  );
+
+  const plans = extractCollection(data, ["plans", "items"]);
+  return plans
+    .map(normalizeSubscriptionPlan)
+    .filter((plan) => Boolean(plan.preapprovalPlanId || plan.id));
 }
 
 export async function getSubscription(reference: string): Promise<SubscriptionInfo> {
