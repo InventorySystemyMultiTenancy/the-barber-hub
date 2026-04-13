@@ -1421,24 +1421,57 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
     throw new ApiClientError("Nome e valor do plano sao obrigatorios.", 400, "VALIDATION_ERROR");
   }
 
-  const data = await apiRequest<any>(
-    "/api/payments/subscriptions/plans",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: safeName,
-        description: payload.description || undefined,
-        transaction_amount: safeAmount,
-        frequency: payload.frequency ?? 1,
-        frequency_type: payload.frequency_type ?? "months",
-        currency_id: payload.currency_id ?? "BRL",
-        back_url: payload.back_url || undefined,
-      }),
-    },
-    true,
-  );
+  const modernBody = {
+    name: safeName,
+    description: payload.description || undefined,
+    transaction_amount: safeAmount,
+    frequency: payload.frequency ?? 1,
+    frequency_type: payload.frequency_type ?? "months",
+    currency_id: payload.currency_id ?? "BRL",
+    back_url: payload.back_url || undefined,
+  };
 
-  return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
+  try {
+    const data = await apiRequest<any>(
+      "/api/payments/subscriptions/plans",
+      {
+        method: "POST",
+        body: JSON.stringify(modernBody),
+      },
+      true,
+    );
+
+    return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
+  } catch (error) {
+    const shouldRetryLegacy =
+      error instanceof ApiClientError &&
+      error.status === 400 &&
+      (error.code === "VALIDATION_ERROR" || !error.code);
+
+    if (!shouldRetryLegacy) {
+      throw error;
+    }
+
+    const legacyBody = {
+      reason: payload.description || safeName,
+      transaction_amount: safeAmount,
+      frequency: payload.frequency ?? 1,
+      frequency_type: payload.frequency_type ?? "months",
+      currency_id: payload.currency_id ?? "BRL",
+      back_url: payload.back_url || undefined,
+    };
+
+    const fallbackData = await apiRequest<any>(
+      "/api/payments/subscriptions/plans",
+      {
+        method: "POST",
+        body: JSON.stringify(legacyBody),
+      },
+      true,
+    );
+
+    return normalizeSubscriptionPlan(fallbackData?.plan ?? fallbackData?.subscription_plan ?? fallbackData);
+  }
 }
 
 export async function getAdminSubscriptionPlans(): Promise<SubscriptionPlan[]> {
