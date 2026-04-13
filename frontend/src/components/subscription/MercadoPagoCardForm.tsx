@@ -59,6 +59,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
         cardFormRef.current = client.cardForm({
           amount: initialAmountRef.current,
+          iframe: true,
           form: {
             id: formIdRef.current,
             cardholderName: { id: idsRef.current.cardholderName },

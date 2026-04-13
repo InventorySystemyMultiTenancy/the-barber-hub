@@ -22,6 +22,7 @@ export type MpCardFormInstance = {
 
 type MpCardFormConfig = {
   amount: string;
+  iframe?: boolean;
   form: {
     id: string;
     cardholderName: { id: string };
