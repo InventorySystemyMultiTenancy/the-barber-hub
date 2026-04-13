@@ -15,8 +15,6 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
   const [sdkReady, setSdkReady] = useState(false);
   const [loadingToken, setLoadingToken] = useState(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
-  const initializedRef = useRef(false);
-  const initialAmountRef = useRef(String(amount || 1));
   const onErrorRef = useRef(onError);
   const onTokenReceivedRef = useRef(onTokenReceived);
   const formIdRef = useRef(`mp-card-form-${Math.random().toString(36).slice(2)}`);
@@ -43,9 +41,19 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
 
   useEffect(() => {
     let mounted = true;
-    if (initializedRef.current) return;
-    initializedRef.current = true;
     setSdkReady(false);
+
+    const hasMountedSecureFields = () => {
+      const cardNumberContainer = document.getElementById(idsRef.current.cardNumber);
+      const expirationContainer = document.getElementById(idsRef.current.expirationDate);
+      const securityContainer = document.getElementById(idsRef.current.securityCode);
+
+      return Boolean(
+        cardNumberContainer?.querySelector("iframe") &&
+          expirationContainer?.querySelector("iframe") &&
+          securityContainer?.querySelector("iframe"),
+      );
+    };
 
     const init = async () => {
       if (!PUBLIC_KEY) {
@@ -54,11 +62,23 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
       }
 
       try {
+        // Wait one frame so all target containers are present in the DOM.
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+        const previousForm = cardFormRef.current;
+        if (previousForm?.unmount) {
+          try {
+            previousForm.unmount();
+          } catch {
+            // Ignore teardown races from SDK internals.
+          }
+        }
+
         const client = await getMercadoPagoClient(PUBLIC_KEY);
         if (!mounted) return;
 
         cardFormRef.current = client.cardForm({
-          amount: initialAmountRef.current,
+          amount: String(amount || 1),
           iframe: true,
           form: {
             id: formIdRef.current,
@@ -78,6 +98,13 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
                 onErrorRef.current("Nao foi possivel inicializar o formulario de cartao.");
                 return;
               }
+
+              if (!hasMountedSecureFields()) {
+                onErrorRef.current("Nao foi possivel montar os campos de cartao. Recarregue a pagina e tente novamente.");
+                setSdkReady(false);
+                return;
+              }
+
               setSdkReady(true);
             },
             onSubmit: (event) => {
@@ -138,7 +165,7 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
         }
       }
     };
-  }, []);
+  }, [amount]);
 
   useEffect(() => {
     const emailInput = document.getElementById(idsRef.current.cardholderEmail) as HTMLInputElement | null;

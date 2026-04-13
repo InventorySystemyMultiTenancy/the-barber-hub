@@ -4,7 +4,6 @@ const MP_IDB_DUPLICATE_STORE_ERROR =
   "Failed to execute 'createObjectStore' on 'IDBDatabase': An object store with the specified name already exists.";
 
 let sdkLoadPromise: Promise<void> | null = null;
-const mpClientByPublicKey = new Map<string, MpClient>();
 let sdkErrorHandlerInstalled = false;
 
 export type MpCardFormInstance = {
@@ -112,12 +111,5 @@ export async function getMercadoPagoClient(publicKey: string): Promise<MpClient>
     throw new Error("SDK Mercado Pago indisponivel.");
   }
 
-  const cachedClient = mpClientByPublicKey.get(safePublicKey);
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = new window.MercadoPago(safePublicKey, { locale: "pt-BR" });
-  mpClientByPublicKey.set(safePublicKey, client);
-  return client;
+  return new window.MercadoPago(safePublicKey, { locale: "pt-BR" });
 }
