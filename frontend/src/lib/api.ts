@@ -1448,12 +1448,12 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
     back_url: payload.back_url || undefined,
   };
 
-  try {
-    logApiDebug("Creating subscription plan (modern payload)", {
-      endpoint: "/api/payments/subscriptions/plans",
-      payload: modernBody,
-    });
+  logApiDebug("Creating subscription plan (modern payload)", {
+    endpoint: "/api/payments/subscriptions/plans",
+    payload: modernBody,
+  });
 
+  try {
     const data = await apiRequest<any>(
       "/api/payments/subscriptions/plans",
       {
@@ -1465,46 +1465,13 @@ export async function createSubscriptionPlan(payload: SubscriptionPlanPayload): 
 
     return normalizeSubscriptionPlan(data?.plan ?? data?.subscription_plan ?? data);
   } catch (error) {
-    logApiDebug("Create plan failed with modern payload", {
+    logApiDebug("Create plan failed (modern payload)", {
       status: error instanceof ApiClientError ? error.status : undefined,
       code: error instanceof ApiClientError ? error.code : undefined,
       message: error instanceof Error ? error.message : String(error),
       details: error instanceof ApiClientError ? error.details : undefined,
     });
-
-    const shouldRetryLegacy =
-      error instanceof ApiClientError &&
-      error.status === 400 &&
-      (error.code === "VALIDATION_ERROR" || !error.code);
-
-    if (!shouldRetryLegacy) {
-      throw error;
-    }
-
-    const legacyBody = {
-      reason: payload.description || safeName,
-      transaction_amount: safeAmount,
-      frequency: payload.frequency ?? 1,
-      frequency_type: payload.frequency_type ?? "months",
-      currency_id: payload.currency_id ?? "BRL",
-      back_url: payload.back_url || undefined,
-    };
-
-    logApiDebug("Retry creating subscription plan (legacy payload)", {
-      endpoint: "/api/payments/subscriptions/plans",
-      payload: legacyBody,
-    });
-
-    const fallbackData = await apiRequest<any>(
-      "/api/payments/subscriptions/plans",
-      {
-        method: "POST",
-        body: JSON.stringify(legacyBody),
-      },
-      true,
-    );
-
-    return normalizeSubscriptionPlan(fallbackData?.plan ?? fallbackData?.subscription_plan ?? fallbackData);
+    throw error;
   }
 }
 

@@ -167,6 +167,9 @@ function toServiceLabel(appointment: Appointment) {
 }
 
 const AdminDashboard = () => {
+    const defaultPlanBackUrl =
+      typeof window !== "undefined" ? `${window.location.origin}/assinatura/sucesso` : "";
+
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const currentPeriod = getCurrentPeriod();
@@ -235,7 +238,7 @@ const AdminDashboard = () => {
   const [planName, setPlanName] = useState("Plano Mensal");
   const [planDescription, setPlanDescription] = useState("Assinatura mensal premium");
   const [planAmount, setPlanAmount] = useState("29.90");
-  const [planBackUrl, setPlanBackUrl] = useState("");
+  const [planBackUrl, setPlanBackUrl] = useState(defaultPlanBackUrl);
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -964,7 +967,7 @@ const AdminDashboard = () => {
         frequency: 1,
         frequency_type: "months",
         currency_id: "BRL",
-        back_url: planBackUrl.trim() || undefined,
+        back_url: planBackUrl.trim() || defaultPlanBackUrl,
       });
 
       toast({
@@ -975,7 +978,7 @@ const AdminDashboard = () => {
       setPlanName("Plano Mensal");
       setPlanDescription("Assinatura mensal premium");
       setPlanAmount("29.90");
-      setPlanBackUrl("");
+      setPlanBackUrl(defaultPlanBackUrl);
       await loadAdminSubscriptionPlans();
     } catch (error) {
       if (handleAdminApiError(error)) return;
