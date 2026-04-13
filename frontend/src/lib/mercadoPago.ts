@@ -1,5 +1,11 @@
 const MERCADO_PAGO_SDK_URL = "https://sdk.mercadopago.com/js/v2";
 const MERCADO_PAGO_SCRIPT_ID = "mercado-pago-sdk-v2";
+const MP_IDB_DUPLICATE_STORE_ERROR =
+  "Failed to execute 'createObjectStore' on 'IDBDatabase': An object store with the specified name already exists.";
+
+let sdkLoadPromise: Promise<void> | null = null;
+const mpClientByPublicKey = new Map<string, MpClient>();
+let sdkErrorHandlerInstalled = false;
 
 export type MpCardFormInstance = {
   unmount?: () => void;
@@ -32,6 +38,7 @@ type MpCardFormConfig = {
     onFormMounted?: (error?: unknown) => void;
     onSubmit?: (event: Event) => void | Promise<void>;
     onFetching?: (resource: string) => void;
+    onError?: (error: unknown) => void;
   };
 };
 
@@ -46,7 +53,9 @@ declare global {
 }
 
 function ensureSdkScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
+  if (sdkLoadPromise) return sdkLoadPromise;
+
+  sdkLoadPromise = new Promise((resolve, reject) => {
     const existingScript = document.getElementById(MERCADO_PAGO_SCRIPT_ID) as HTMLScriptElement | null;
 
     if (existingScript) {
@@ -67,6 +76,26 @@ function ensureSdkScript(): Promise<void> {
     script.onerror = () => reject(new Error("Falha ao carregar SDK Mercado Pago."));
     document.head.appendChild(script);
   });
+
+  return sdkLoadPromise;
+}
+
+function installMercadoPagoNoiseGuard() {
+  if (sdkErrorHandlerInstalled) return;
+  sdkErrorHandlerInstalled = true;
+
+  window.addEventListener("error", (event) => {
+    const message = String(event.message || "");
+    const source = String(event.filename || "");
+
+    const isKnownMercadoPagoIndexedDbNoise =
+      message.includes(MP_IDB_DUPLICATE_STORE_ERROR) && (source.includes("iframe") || source.includes("mercadopago"));
+
+    if (isKnownMercadoPagoIndexedDbNoise) {
+      event.preventDefault();
+      console.warn("[MercadoPago] IndexedDB warning ignored (known SDK iframe noise).");
+    }
+  });
 }
 
 export async function getMercadoPagoClient(publicKey: string): Promise<MpClient> {
@@ -76,10 +105,18 @@ export async function getMercadoPagoClient(publicKey: string): Promise<MpClient>
   }
 
   await ensureSdkScript();
+  installMercadoPagoNoiseGuard();
 
   if (!window.MercadoPago) {
     throw new Error("SDK Mercado Pago indisponivel.");
   }
 
-  return new window.MercadoPago(safePublicKey, { locale: "pt-BR" });
+  const cachedClient = mpClientByPublicKey.get(safePublicKey);
+  if (cachedClient) {
+    return cachedClient;
+  }
+
+  const client = new window.MercadoPago(safePublicKey, { locale: "pt-BR" });
+  mpClientByPublicKey.set(safePublicKey, client);
+  return client;
 }

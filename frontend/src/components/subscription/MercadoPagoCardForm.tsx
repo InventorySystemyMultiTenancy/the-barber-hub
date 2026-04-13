@@ -100,6 +100,14 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
               }
             },
             onFetching: () => {},
+            onError: (error) => {
+              const message = error instanceof Error ? error.message : String(error || "");
+              onErrorRef.current(
+                message
+                  ? `Falha ao gerar token do cartao: ${message}`
+                  : "Falha ao gerar token do cartao. Revise os dados e tente novamente.",
+              );
+            },
           },
         });
       } catch (error) {
@@ -160,7 +168,11 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           defaultValue={initialEmail}
         />
         <div className="grid grid-cols-2 gap-2">
-          <select id={idsRef.current.identificationType} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          <select
+            id={idsRef.current.identificationType}
+            name="identificationType"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
           <input
             id={idsRef.current.identificationNumber}
             name="identificationNumber"
@@ -169,8 +181,16 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <select id={idsRef.current.issuer} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm" />
-          <select id={idsRef.current.installments} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          <select
+            id={idsRef.current.issuer}
+            name="issuer"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+          <select
+            id={idsRef.current.installments}
+            name="installments"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
         </div>
 
         <Button type="submit" disabled={!sdkReady || loadingToken} className="w-full">
