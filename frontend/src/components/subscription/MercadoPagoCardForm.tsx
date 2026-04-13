@@ -25,6 +25,7 @@ export default function MercadoPagoCardForm({
   const [loadingToken, setLoadingToken] = useState(false);
   const initializedRef = useRef(false);
   const cardFormRef = useRef<MpCardFormInstance | null>(null);
+  const lastTokenRef = useRef<string>("");
   const lastSdkErrorsRef = useRef<Array<{ field?: string; message?: string }>>([]);
   const onErrorRef = useRef(onError);
   const onTokenReceivedRef = useRef(onTokenReceived);
@@ -94,6 +95,12 @@ export default function MercadoPagoCardForm({
         const field = String(item.field || "").toLowerCase();
         return ["cardnumber", "securitycode", "expirationdate", "expirationmonth", "expirationyear"].includes(field);
       });
+    };
+
+    const readTokenFromCreateResult = (value: unknown) => {
+      if (!value || typeof value !== "object") return "";
+      const candidate = value as Record<string, unknown>;
+      return String(candidate.id || candidate.token || "").trim();
     };
 
     const buildSdkErrorMessage = (error: unknown) => {
@@ -179,16 +186,21 @@ export default function MercadoPagoCardForm({
               lastSdkErrorsRef.current = [];
 
               try {
+                let token = "";
                 if (cardFormRef.current?.createCardToken) {
-                  await cardFormRef.current.createCardToken();
+                  const tokenResult = await cardFormRef.current.createCardToken();
+                  token = readTokenFromCreateResult(tokenResult);
                 }
 
                 const formData = cardFormRef.current?.getCardFormData();
-                const token = String(formData?.token || "").trim();
+                if (!token) {
+                  token = String(formData?.token || "").trim();
+                }
                 const email = String(formData?.cardholderEmail || "").trim();
 
                 console.info("[MercadoPagoCardForm] tokenization attempt", {
                   tokenLength: token.length,
+                  tokenSource: cardFormRef.current?.createCardToken ? "createCardToken" : "getCardFormData",
                   paymentMethodId: formData?.paymentMethodId || null,
                   issuerId: formData?.issuerId || null,
                   installments: formData?.installments || null,
@@ -205,6 +217,12 @@ export default function MercadoPagoCardForm({
                   onErrorRef.current("Token do cartao nao foi gerado. Revise os dados e tente novamente.");
                   return;
                 }
+
+                if (lastTokenRef.current && token === lastTokenRef.current) {
+                  onErrorRef.current("Nao foi possivel gerar um token novo do cartao. Recarregue a pagina e tente novamente.");
+                  return;
+                }
+                lastTokenRef.current = token;
 
                 if (!email) {
                   onErrorRef.current("Email do titular e obrigatorio para assinatura.");
