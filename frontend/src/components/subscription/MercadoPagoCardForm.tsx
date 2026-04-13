@@ -258,14 +258,14 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           id={idsRef.current.cardholderName}
           name="cardholderName"
           placeholder="Nome no cartao"
-          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
           autoComplete="cc-name"
         />
         <input
           id={idsRef.current.cardholderEmail}
           name="cardholderEmail"
           placeholder="Email do titular"
-          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
           autoComplete="email"
           defaultValue={initialEmail}
         />
@@ -273,25 +273,25 @@ export default function MercadoPagoCardForm({ amount, initialEmail, onTokenRecei
           <select
             id={idsRef.current.identificationType}
             name="identificationType"
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
           />
           <input
             id={idsRef.current.identificationNumber}
             name="identificationNumber"
             placeholder="Documento"
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
           />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <select
             id={idsRef.current.issuer}
             name="issuer"
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
           />
           <select
             id={idsRef.current.installments}
             name="installments"
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
           />
         </div>
 
