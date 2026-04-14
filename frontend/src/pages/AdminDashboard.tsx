@@ -8,6 +8,7 @@ import {
   DollarSign,
   Landmark,
   Plus,
+  Pencil,
   RotateCcw,
   Shield,
   MessageCircle,
@@ -44,6 +45,8 @@ import {
   getFriendlyErrorMessage,
   getSlotsByDate,
   toggleSubscriptionPlan,
+  updateAdminFixedExpense,
+  updateAdminVariableExpense,
   updateAdminDayHour,
   updateAdminAppointmentStatus,
   updateAdminBarber,
@@ -57,6 +60,8 @@ import {
 } from "@/lib/api";
 import { normalizeWhatsAppPhone, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
+import { FixedExpenseEditModal } from "@/components/admin/FixedExpenseEditModal";
+import { VariableExpenseEditModal } from "@/components/admin/VariableExpenseEditModal";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -201,6 +206,10 @@ const AdminDashboard = () => {
 
   const [fixedSubmitting, setFixedSubmitting] = useState(false);
   const [variableSubmitting, setVariableSubmitting] = useState(false);
+  const [editingFixedExpense, setEditingFixedExpense] = useState<FixedExpense | null>(null);
+  const [editingVariableExpense, setEditingVariableExpense] = useState<VariableExpense | null>(null);
+  const [fixedEditSaving, setFixedEditSaving] = useState(false);
+  const [variableEditSaving, setVariableEditSaving] = useState(false);
 
   const [fixedTitle, setFixedTitle] = useState("");
   const [fixedAmount, setFixedAmount] = useState("");
@@ -944,6 +953,63 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleUpdateFixedExpense = async (payload: Parameters<typeof updateAdminFixedExpense>[1]) => {
+    if (!editingFixedExpense?.id) return;
+
+    setFixedEditSaving(true);
+    try {
+      await updateAdminFixedExpense(editingFixedExpense.id, payload);
+
+      toast({
+        title: "Gasto fixo atualizado",
+        description: "Alteracoes salvas com sucesso.",
+      });
+
+      setEditingFixedExpense(null);
+      await Promise.allSettled([loadFixedExpenses(), loadFinancialSummary(appliedStartDate, appliedEndDate)]);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true) })) return;
+
+      toast({
+        title: "Erro ao atualizar gasto fixo",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setFixedEditSaving(false);
+    }
+  };
+
+  const handleUpdateVariableExpense = async (payload: Parameters<typeof updateAdminVariableExpense>[1]) => {
+    if (!editingVariableExpense?.id) return;
+
+    setVariableEditSaving(true);
+    try {
+      await updateAdminVariableExpense(editingVariableExpense.id, payload);
+
+      toast({
+        title: "Gasto variavel atualizado",
+        description: "Alteracoes salvas com sucesso.",
+      });
+
+      setEditingVariableExpense(null);
+      await Promise.allSettled([
+        loadVariableExpenses(appliedStartDate, appliedEndDate),
+        loadFinancialSummary(appliedStartDate, appliedEndDate),
+      ]);
+    } catch (error) {
+      if (handleAdminApiError(error, { onForbidden: () => setReportsForbidden(true) })) return;
+
+      toast({
+        title: "Erro ao atualizar gasto variavel",
+        description: getFriendlyErrorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setVariableEditSaving(false);
+    }
+  };
+
   const handleCreateSubscriptionPlan = async (event: FormEvent) => {
     event.preventDefault();
 
@@ -1653,7 +1719,18 @@ const AdminDashboard = () => {
                             </p>
                             {expense.notes && <p className="text-xs text-muted-foreground mt-1">{expense.notes}</p>}
                           </div>
-                          <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingFixedExpense(expense)}
+                              disabled={fixedEditSaving}
+                            >
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Editar
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1734,7 +1811,18 @@ const AdminDashboard = () => {
                             <p className="text-xs text-muted-foreground">Data: {formatDateBr(expense.expenseDate)}</p>
                             {expense.notes && <p className="text-xs text-muted-foreground mt-1">{expense.notes}</p>}
                           </div>
-                          <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            <p className="font-heading text-lg">{formatMoney(expense.amount)}</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingVariableExpense(expense)}
+                              disabled={variableEditSaving}
+                            >
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Editar
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1744,6 +1832,26 @@ const AdminDashboard = () => {
             )}
           </TabsContent>
         </Tabs>
+
+        <FixedExpenseEditModal
+          open={Boolean(editingFixedExpense)}
+          onOpenChange={(open) => {
+            if (!open) setEditingFixedExpense(null);
+          }}
+          expense={editingFixedExpense}
+          isSaving={fixedEditSaving}
+          onSave={handleUpdateFixedExpense}
+        />
+
+        <VariableExpenseEditModal
+          open={Boolean(editingVariableExpense)}
+          onOpenChange={(open) => {
+            if (!open) setEditingVariableExpense(null);
+          }}
+          expense={editingVariableExpense}
+          isSaving={variableEditSaving}
+          onSave={handleUpdateVariableExpense}
+        />
       </div>
     </div>
   );

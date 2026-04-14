@@ -163,11 +163,27 @@ export interface CreateFixedExpensePayload {
   notes?: string;
 }
 
+export interface UpdateFixedExpensePayload {
+  title?: string;
+  amount?: number;
+  starts_on?: string;
+  ends_on?: string | null;
+  is_active?: boolean;
+  notes?: string | null;
+}
+
 export interface CreateVariableExpensePayload {
   title: string;
   amount: number;
   expense_date: string;
   notes?: string;
+}
+
+export interface UpdateVariableExpensePayload {
+  title?: string;
+  amount?: number;
+  expense_date?: string;
+  notes?: string | null;
 }
 
 export interface AppointmentSlot {
@@ -1347,6 +1363,28 @@ export async function createAdminFixedExpense(payload: CreateFixedExpensePayload
   return normalizeFixedExpense(data?.fixed_expense ?? data?.expense ?? data);
 }
 
+export async function updateAdminFixedExpense(id: string, payload: UpdateFixedExpensePayload): Promise<FixedExpense> {
+  const safeId = String(id || "").trim();
+  if (!safeId) {
+    throw new ApiClientError("ID do gasto fixo e obrigatorio.", 400, "VALIDATION_ERROR");
+  }
+
+  if (Object.keys(payload || {}).length === 0) {
+    throw new ApiClientError("Nenhum campo alterado para atualizar.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    `/api/admin/expenses/fixed/${encodeURIComponent(safeId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeFixedExpense(data?.fixed_expense ?? data?.expense ?? data);
+}
+
 export async function getAdminVariableExpenses(startDate: string, endDate: string): Promise<VariableExpense[]> {
   const query = new URLSearchParams({ startDate, endDate }).toString();
   const data = await apiRequest<any>(`/api/admin/expenses/variable?${query}`, { method: "GET" }, true);
@@ -1359,6 +1397,28 @@ export async function createAdminVariableExpense(payload: CreateVariableExpenseP
     "/api/admin/expenses/variable",
     {
       method: "POST",
+      body: JSON.stringify(payload),
+    },
+    true,
+  );
+
+  return normalizeVariableExpense(data?.variable_expense ?? data?.expense ?? data);
+}
+
+export async function updateAdminVariableExpense(id: string, payload: UpdateVariableExpensePayload): Promise<VariableExpense> {
+  const safeId = String(id || "").trim();
+  if (!safeId) {
+    throw new ApiClientError("ID do gasto variavel e obrigatorio.", 400, "VALIDATION_ERROR");
+  }
+
+  if (Object.keys(payload || {}).length === 0) {
+    throw new ApiClientError("Nenhum campo alterado para atualizar.", 400, "VALIDATION_ERROR");
+  }
+
+  const data = await apiRequest<any>(
+    `/api/admin/expenses/variable/${encodeURIComponent(safeId)}`,
+    {
+      method: "PATCH",
       body: JSON.stringify(payload),
     },
     true,
