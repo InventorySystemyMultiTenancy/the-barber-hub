@@ -15,6 +15,7 @@ import {
   getBarbers,
   getAppointmentServices,
   getFriendlyErrorMessage,
+  getMySubscription,
   getPaymentStatus,
   getSlotsByDate,
   type Appointment,
@@ -22,6 +23,7 @@ import {
   type AppointmentSlot,
   type PaymentStatus,
   type SlotsMeta,
+  type SubscriptionInfo,
 } from "@/lib/api";
 import { BUSINESS_WHATSAPP_NUMBER, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
@@ -86,6 +88,10 @@ function generateIdempotencyKey() {
   }
 
   return `pay_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function isPremiumSubscriptionStatus(status?: SubscriptionInfo["status"]) {
+  return status === "authorized" || status === "pending";
 }
 
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
@@ -167,7 +173,9 @@ const Booking = () => {
   const [barbersLoading, setBarbersLoading] = useState(false);
   const [barbersError, setBarbersError] = useState<string | null>(null);
   const [selectedBarberId, setSelectedBarberId] = useState("");
-  const [paymentMethodChoice, setPaymentMethodChoice] = useState<"presencial" | "online">("presencial");
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<"presencial" | "online" | "assinante_premium">("presencial");
+  const [isPremiumSubscriber, setIsPremiumSubscriber] = useState(false);
+  const [subscriptionCheckLoading, setSubscriptionCheckLoading] = useState(false);
   const [lastDiscountSummary, setLastDiscountSummary] = useState<{
     applied: boolean;
     message?: string;
@@ -369,6 +377,44 @@ const Booking = () => {
     if (!user) return;
     loadServices();
     loadBarbers();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setIsPremiumSubscriber(false);
+      setPaymentMethodChoice("presencial");
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadMySubscription = async () => {
+      setSubscriptionCheckLoading(true);
+      try {
+        const subscription = await getMySubscription();
+        if (!isMounted) return;
+
+        const premium = isPremiumSubscriptionStatus(subscription?.status);
+        setIsPremiumSubscriber(premium);
+        if (!premium) {
+          setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
+        }
+      } catch {
+        if (!isMounted) return;
+        setIsPremiumSubscriber(false);
+        setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
+      } finally {
+        if (isMounted) {
+          setSubscriptionCheckLoading(false);
+        }
+      }
+    };
+
+    void loadMySubscription();
+
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   useEffect(() => {
@@ -658,7 +704,7 @@ const Booking = () => {
         time: selectedTime,
         serviceType: selectedServiceKey,
         barberId: selectedBarberId,
-        paymentMethod: paymentMethodChoice,
+        paymentMethod: paymentMethodChoice === "assinante_premium" ? "assinante_premium" : paymentMethodChoice,
       });
 
       const summary = getAppointmentSummary(createdAppointment);
@@ -1143,7 +1189,25 @@ const Booking = () => {
                     >
                       Pagar online (Mercado Pago)
                     </Button>
+                    {isPremiumSubscriber && (
+                      <Button
+                        type="button"
+                        variant={paymentMethodChoice === "assinante_premium" ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        onClick={() => setPaymentMethodChoice("assinante_premium")}
+                      >
+                        Assinante premium
+                      </Button>
+                    )}
                   </div>
+                  {isPremiumSubscriber && (
+                    <p className="text-[11px] text-green-400">
+                      Voce e assinante premium. Escolha essa opcao para registrar o agendamento com beneficio de assinatura.
+                    </p>
+                  )}
+                  {subscriptionCheckLoading && (
+                    <p className="text-[11px] text-muted-foreground">Validando status da assinatura...</p>
+                  )}
                 </div>
               </div>
             </div>

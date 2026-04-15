@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Trash2,
   TrendingUp,
+  Users,
   Wallet,
 } from "lucide-react";
 import Header from "@/components/Header";
@@ -38,6 +39,7 @@ import {
   createAdminVariableExpense,
   deactivateAdminBarber,
   deleteAdminAppointment,
+  getAdminSubscribers,
   getAdminFinancialReport,
   getAdminFixedExpenses,
   getAdminAppointmentsByDate,
@@ -53,6 +55,7 @@ import {
   type Appointment,
   type AppointmentSlot,
   type AppointmentStatus,
+  type AdminSubscriber,
   type DayHour,
   type FinancialReport,
   type FixedExpense,
@@ -127,6 +130,11 @@ function isBirthdayOnAppointmentDate(birthDate?: string, appointmentDate?: strin
 function hasBirthdayDiscountInferred(appointment: Appointment) {
   const service = normalizeServiceToken(appointment.serviceType);
   return isBirthdayOnAppointmentDate(appointment.birthDate, appointment.appointmentDate) && service === "corte";
+}
+
+function isPremiumSubscriptionStatus(status?: string) {
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "authorized" || normalized === "pending";
 }
 
 function findBaseServicePrice(serviceType: string | undefined, servicesPriceMap: Record<string, number>) {
@@ -244,6 +252,10 @@ const AdminDashboard = () => {
   const [planSubmitting, setPlanSubmitting] = useState(false);
   const [planToggleLoadingRef, setPlanToggleLoadingRef] = useState<string | null>(null);
 
+  const [subscribers, setSubscribers] = useState<AdminSubscriber[]>([]);
+  const [subscribersLoading, setSubscribersLoading] = useState(false);
+  const [subscribersError, setSubscribersError] = useState<string | null>(null);
+
   const [planName, setPlanName] = useState("Plano Mensal");
   const [planDescription, setPlanDescription] = useState("Assinatura mensal premium");
   const [planAmount, setPlanAmount] = useState("29.90");
@@ -339,6 +351,25 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadAdminSubscribers = async () => {
+    setSubscribersLoading(true);
+    setSubscribersError(null);
+
+    try {
+      const data = await getAdminSubscribers();
+      setSubscribers(data);
+    } catch (error) {
+      if (handleAdminApiError(error, { silentToast: true })) {
+        setSubscribersError("Sem permissao para listar assinantes.");
+      } else {
+        setSubscribersError(getFriendlyErrorMessage(error));
+      }
+      setSubscribers([]);
+    } finally {
+      setSubscribersLoading(false);
+    }
+  };
+
   const loadServicesCatalog = async () => {
     try {
       const services = await getAppointmentServices();
@@ -423,6 +454,7 @@ const AdminDashboard = () => {
       loadServicesCatalog();
       loadAdminBarbers();
       loadAdminSubscriptionPlans();
+      loadAdminSubscribers();
     }
   }, [isAdmin]);
 
@@ -830,6 +862,16 @@ const AdminDashboard = () => {
     return { totalAgendado, totalPago, faturamento };
   }, [appointments]);
 
+  const premiumSubscribersByUserId = useMemo(() => {
+    const map = new Map<string, AdminSubscriber>();
+    subscribers.forEach((subscriber) => {
+      if (!subscriber.userId) return;
+      if (!isPremiumSubscriptionStatus(subscriber.status)) return;
+      map.set(String(subscriber.userId), subscriber);
+    });
+    return map;
+  }, [subscribers]);
+
   const applyReportFilter = async () => {
     if (!filterStartDate || !filterEndDate) {
       toast({
@@ -1113,13 +1155,16 @@ const AdminDashboard = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full max-w-2xl grid grid-cols-4 mb-8">
+          <TabsList className="w-full max-w-3xl grid grid-cols-5 mb-8">
             <TabsTrigger value="agenda">Agenda</TabsTrigger>
             <TabsTrigger value="relatorios" className="gap-2">
               <BarChart3 className="h-4 w-4" /> Relatorios
             </TabsTrigger>
             <TabsTrigger value="barbeiros">Barbeiros</TabsTrigger>
             <TabsTrigger value="planos">Planos</TabsTrigger>
+            <TabsTrigger value="assinantes" className="gap-2">
+              <Users className="h-4 w-4" /> Assinantes
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="agenda" className="space-y-6">
@@ -1297,6 +1342,12 @@ const AdminDashboard = () => {
                       : isHalfPriceInferred
                         ? (baseServicePrice ?? prices.base)
                         : prices.base;
+                  const subscriberByAppointmentUserId = appointment.userId
+                    ? premiumSubscribersByUserId.get(String(appointment.userId))
+                    : undefined;
+                  const isPremiumSubscriber = Boolean(appointment.isPremiumSubscriber || subscriberByAppointmentUserId);
+                  const subscriptionPlanName =
+                    appointment.subscriptionPlanName || subscriberByAppointmentUserId?.planName || "Plano premium";
 
                   return (
                     <div key={appointment.id} className="glass rounded-lg p-4">
@@ -1313,6 +1364,11 @@ const AdminDashboard = () => {
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm text-foreground">Cliente: {appointment.fullName || "Sem nome"}</p>
+                            {isPremiumSubscriber && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/40">
+                                Assinante premium
+                              </span>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -1322,6 +1378,9 @@ const AdminDashboard = () => {
                               <MessageCircle className="h-3.5 w-3.5" /> Confirmar via WhatsApp
                             </Button>
                           </div>
+                          {isPremiumSubscriber && (
+                            <p className="text-xs text-green-400">Plano: {subscriptionPlanName}</p>
+                          )}
                           <p className="text-sm text-foreground">Servico: {toServiceLabel(appointment)}</p>
                           <p className="text-sm text-foreground">Valor: {formatMoney(appointment.price || 0)}</p>
                           {shouldShowBirthdayBadge && (
@@ -1563,6 +1622,61 @@ const AdminDashboard = () => {
                           </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="assinantes" className="space-y-6">
+            <section className="glass rounded-lg p-4 md:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h2 className="font-heading text-xl font-semibold">Assinantes premium</h2>
+                  <p className="text-xs text-muted-foreground">Usuarios com assinatura ativa ou pendente.</p>
+                </div>
+                <Button variant="outline" onClick={loadAdminSubscribers} disabled={subscribersLoading}>
+                  {subscribersLoading ? "Atualizando..." : "Atualizar lista"}
+                </Button>
+              </div>
+
+              {subscribersError ? (
+                <div className="rounded-md border border-destructive/40 p-3">
+                  <p className="text-destructive font-semibold">Erro ao carregar assinantes</p>
+                  <p className="text-sm text-muted-foreground mt-1">{subscribersError}</p>
+                </div>
+              ) : subscribersLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando assinantes...</p>
+              ) : subscribers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum assinante premium encontrado.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/70 text-left text-muted-foreground">
+                        <th className="py-2 pr-3">Nome</th>
+                        <th className="py-2 pr-3">Plano</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-2 pr-3">Valor</th>
+                        <th className="py-2">Contato</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subscribers.map((subscriber) => (
+                        <tr key={`${subscriber.userId}-${subscriber.subscriptionId || subscriber.preapprovalPlanId || "-"}`} className="border-b border-border/40 align-top">
+                          <td className="py-2 pr-3">{subscriber.fullName || "Sem nome"}</td>
+                          <td className="py-2 pr-3">{subscriber.planName || "Plano premium"}</td>
+                          <td className="py-2 pr-3">{subscriber.status}</td>
+                          <td className="py-2 pr-3">
+                            {typeof subscriber.transactionAmount === "number" ? formatMoney(subscriber.transactionAmount) : "-"}
+                          </td>
+                          <td className="py-2">
+                            {subscriber.phone || "-"}
+                            {subscriber.email ? ` • ${subscriber.email}` : ""}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>

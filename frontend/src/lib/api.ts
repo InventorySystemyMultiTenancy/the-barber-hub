@@ -86,6 +86,11 @@ export interface Appointment {
   email?: string;
   phone?: string;
   birthDate?: string;
+  paymentMethod?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionPlanName?: string;
+  subscriptionPlanId?: string;
+  isPremiumSubscriber?: boolean;
   discount?: {
     applied: boolean;
     type?: string;
@@ -358,6 +363,19 @@ export interface SubscriptionInfo {
   providerEvents: SubscriptionProviderEvent[];
 }
 
+export interface AdminSubscriber {
+  userId: string;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  planName?: string;
+  preapprovalPlanId?: string;
+  subscriptionId?: string;
+  status: SubscriptionStatus;
+  transactionAmount?: number;
+  currencyId?: string;
+}
+
 function getStoredToken() {
   return localStorage.getItem(SESSION_TOKEN_KEY);
 }
@@ -529,6 +547,69 @@ function normalizeAppointment(raw: any): Appointment {
     isBirthdayType ||
     (normalizedDiscountPercent !== undefined && normalizedDiscountPercent > 0);
 
+  const paymentMethod =
+    raw.payment_method ?? raw.paymentMethod ?? raw.payment?.method ?? raw.paymentMethodChoice ?? undefined;
+
+  const subscriptionSource =
+    raw.subscription ??
+    raw.user_subscription ??
+    raw.userSubscription ??
+    raw.current_subscription ??
+    raw.currentSubscription ??
+    raw.user?.subscription ??
+    raw.user?.current_subscription ??
+    raw.user?.currentSubscription ??
+    null;
+
+  const subscriptionStatusRaw =
+    raw.subscription_status ??
+    raw.subscriptionStatus ??
+    subscriptionSource?.status ??
+    subscriptionSource?.subscription_status ??
+    subscriptionSource?.subscriptionStatus ??
+    undefined;
+
+  const normalizedSubscriptionStatus =
+    subscriptionStatusRaw !== undefined && subscriptionStatusRaw !== null
+      ? normalizeSubscriptionStatus(subscriptionStatusRaw)
+      : undefined;
+
+  const subscriptionPlanName =
+    raw.subscription_plan_name ??
+    raw.subscriptionPlanName ??
+    subscriptionSource?.plan_name ??
+    subscriptionSource?.planName ??
+    subscriptionSource?.name ??
+    undefined;
+
+  const subscriptionPlanId =
+    raw.subscription_plan_id ??
+    raw.subscriptionPlanId ??
+    raw.preapproval_plan_id ??
+    raw.preapprovalPlanId ??
+    subscriptionSource?.preapproval_plan_id ??
+    subscriptionSource?.preapprovalPlanId ??
+    subscriptionSource?.plan_id ??
+    subscriptionSource?.planId ??
+    undefined;
+
+  const premiumFlagRaw =
+    raw.is_premium_subscriber ??
+    raw.isPremiumSubscriber ??
+    raw.is_subscriber ??
+    raw.isSubscriber ??
+    raw.has_active_subscription ??
+    raw.hasActiveSubscription ??
+    subscriptionSource?.is_premium_subscriber ??
+    subscriptionSource?.isPremiumSubscriber ??
+    subscriptionSource?.is_active ??
+    subscriptionSource?.isActive ??
+    undefined;
+
+  const isPremiumSubscriber =
+    Boolean(premiumFlagRaw) ||
+    (normalizedSubscriptionStatus ? isPremiumSubscriptionStatus(normalizedSubscriptionStatus) : false);
+
   return {
     id: String(raw.id),
     appointmentDate: normalizeDateOnly(raw.appointment_date ?? raw.appointmentDate ?? ""),
@@ -542,6 +623,11 @@ function normalizeAppointment(raw: any): Appointment {
     email: raw.email ?? raw.user?.email ?? undefined,
     phone: raw.phone ?? raw.user?.phone ?? undefined,
     birthDate: normalizeDateOnly(raw.birth_date ?? raw.birthDate ?? raw.user?.birth_date ?? raw.user?.birthDate ?? "") || undefined,
+    paymentMethod: paymentMethod ? String(paymentMethod) : undefined,
+    subscriptionStatus: normalizedSubscriptionStatus,
+    subscriptionPlanName: subscriptionPlanName ? String(subscriptionPlanName) : undefined,
+    subscriptionPlanId: subscriptionPlanId ? String(subscriptionPlanId) : undefined,
+    isPremiumSubscriber,
     discount: hasAnyDiscountSignal
       ? {
           applied: Boolean(discountRaw?.applied ?? discountAppliedByFlags ?? isBirthdayType ?? false),
@@ -586,6 +672,11 @@ function normalizeSubscriptionStatus(statusRaw: unknown): SubscriptionStatus {
   if (normalized === "paused") return "paused";
   if (normalized === "canceled" || normalized === "cancelled") return "canceled";
   return "unknown";
+}
+
+function isPremiumSubscriptionStatus(statusRaw: unknown) {
+  const normalized = normalizeSubscriptionStatus(statusRaw);
+  return normalized === "authorized" || normalized === "pending";
 }
 
 function normalizeSubscriptionPlan(raw: any): SubscriptionPlan {
@@ -675,6 +766,95 @@ function normalizeSubscriptionInfo(raw: any): SubscriptionInfo {
     email: source?.email ?? source?.payer_email ?? source?.payerEmail ?? undefined,
     attempts,
     providerEvents,
+  };
+}
+
+function normalizeAdminSubscriber(raw: any): AdminSubscriber {
+  const statusRaw =
+    raw.status ??
+    raw.subscription_status ??
+    raw.subscriptionStatus ??
+    raw.subscription?.status ??
+    raw.current_subscription?.status ??
+    raw.currentSubscription?.status ??
+    undefined;
+
+  const status = normalizeSubscriptionStatus(statusRaw);
+
+  const userIdRaw =
+    raw.user_id ??
+    raw.userId ??
+    raw.user?.id ??
+    raw.client_id ??
+    raw.clientId ??
+    raw.customer_id ??
+    raw.customerId ??
+    raw.id ??
+    "";
+
+  const fullName =
+    raw.full_name ??
+    raw.fullName ??
+    raw.user?.full_name ??
+    raw.user?.fullName ??
+    raw.name ??
+    undefined;
+
+  const planName =
+    raw.plan_name ??
+    raw.planName ??
+    raw.subscription_plan_name ??
+    raw.subscriptionPlanName ??
+    raw.subscription?.plan_name ??
+    raw.subscription?.planName ??
+    raw.subscription?.name ??
+    undefined;
+
+  const preapprovalPlanId =
+    raw.preapproval_plan_id ??
+    raw.preapprovalPlanId ??
+    raw.plan_id ??
+    raw.planId ??
+    raw.subscription?.preapproval_plan_id ??
+    raw.subscription?.preapprovalPlanId ??
+    undefined;
+
+  const subscriptionId =
+    raw.subscription_id ??
+    raw.subscriptionId ??
+    raw.id ??
+    raw.subscription?.id ??
+    undefined;
+
+  const amountRaw =
+    raw.transaction_amount ??
+    raw.transactionAmount ??
+    raw.amount ??
+    raw.subscription?.transaction_amount ??
+    raw.subscription?.transactionAmount ??
+    undefined;
+
+  const transactionAmount =
+    amountRaw !== undefined && amountRaw !== null && Number.isFinite(Number(amountRaw))
+      ? Number(amountRaw)
+      : undefined;
+
+  return {
+    userId: String(userIdRaw || ""),
+    fullName: fullName ? String(fullName) : undefined,
+    email: raw.email ?? raw.user?.email ?? undefined,
+    phone: raw.phone ?? raw.user?.phone ?? undefined,
+    planName: planName ? String(planName) : undefined,
+    preapprovalPlanId: preapprovalPlanId ? String(preapprovalPlanId) : undefined,
+    subscriptionId: subscriptionId ? String(subscriptionId) : undefined,
+    status,
+    transactionAmount,
+    currencyId:
+      raw.currency_id ??
+      raw.currencyId ??
+      raw.subscription?.currency_id ??
+      raw.subscription?.currencyId ??
+      undefined,
   };
 }
 
@@ -1561,6 +1741,42 @@ export async function getAdminSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   return plans.map(normalizeSubscriptionPlan);
 }
 
+export async function getAdminSubscribers(): Promise<AdminSubscriber[]> {
+  const candidateEndpoints = [
+    "/api/admin/subscribers",
+    "/api/admin/subscriptions/subscribers",
+    "/api/payments/subscriptions/admin/subscribers",
+    "/api/payments/subscriptions/subscribers",
+    "/api/admin/subscriptions",
+  ];
+
+  let lastError: unknown = null;
+
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const data = await apiRequest<any>(`${endpoint}?_t=${Date.now()}`, { method: "GET" }, true);
+      const rows = extractCollection(data, ["subscribers", "subscriptions", "items", "rows"]);
+      return rows
+        .map(normalizeAdminSubscriber)
+        .filter((item) => item.userId.length > 0)
+        .filter((item) => isPremiumSubscriptionStatus(item.status));
+    } catch (error) {
+      if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
+        lastError = error;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return [];
+}
+
 export async function toggleSubscriptionPlan(reference: string, isActive: boolean): Promise<SubscriptionPlan> {
   const safeReference = String(reference || "").trim();
   if (!safeReference) {
@@ -1635,6 +1851,32 @@ export async function getSubscription(reference: string): Promise<SubscriptionIn
   );
 
   return normalizeSubscriptionInfo(data);
+}
+
+export async function getMySubscription(): Promise<SubscriptionInfo | null> {
+  const candidateEndpoints = [
+    "/api/payments/subscriptions/me",
+    "/api/payments/subscriptions/current",
+  ];
+
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const data = await apiRequest<any>(`${endpoint}?_t=${Date.now()}`, { method: "GET" }, true);
+      return normalizeSubscriptionInfo(data);
+    } catch (error) {
+      if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
+        continue;
+      }
+
+      if (error instanceof ApiClientError && error.code === "SUBSCRIPTION_NOT_FOUND") {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  return null;
 }
 
 export async function cancelSubscription(reference: string): Promise<SubscriptionInfo> {
