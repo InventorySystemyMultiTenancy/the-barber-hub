@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { addDays, format, startOfToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -184,6 +184,24 @@ const Booking = () => {
   const pollingStartedAtRef = useRef<number | null>(null);
   const pollingTimerRef = useRef<number | null>(null);
   const latestPaymentFlowRef = useRef<PaymentFlowState>({ state: "idle" });
+
+  const applyPremiumState = useCallback((isActive: boolean) => {
+    setIsPremiumSubscriber(isActive);
+    if (!isActive) {
+      setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
+    }
+    return isActive;
+  }, []);
+
+  const fetchLatestPremiumStatus = useCallback(async () => {
+    try {
+      const subscription = await getMySubscription();
+      const premiumState = getSubscriptionState(subscription);
+      return applyPremiumState(premiumState.isActive);
+    } catch {
+      return applyPremiumState(false);
+    }
+  }, [applyPremiumState]);
 
   useEffect(() => {
     latestPaymentFlowRef.current = paymentFlow;
@@ -386,23 +404,9 @@ const Booking = () => {
 
     const loadMySubscription = async () => {
       setSubscriptionCheckLoading(true);
-      try {
-        const subscription = await getMySubscription();
-        if (!isMounted) return;
-
-        const premium = getSubscriptionState(subscription).isActive;
-        setIsPremiumSubscriber(premium);
-        if (!premium) {
-          setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
-        }
-      } catch {
-        if (!isMounted) return;
-        setIsPremiumSubscriber(false);
-        setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
-      } finally {
-        if (isMounted) {
-          setSubscriptionCheckLoading(false);
-        }
+      await fetchLatestPremiumStatus();
+      if (isMounted) {
+        setSubscriptionCheckLoading(false);
       }
     };
 
@@ -411,7 +415,26 @@ const Booking = () => {
     return () => {
       isMounted = false;
     };
-  }, [user]);
+  }, [user, fetchLatestPremiumStatus]);
+
+  useEffect(() => {
+    if (!user || !selectedDate || !selectedTime) return;
+
+    let isMounted = true;
+    const refreshCurrentSubscriptionState = async () => {
+      setSubscriptionCheckLoading(true);
+      await fetchLatestPremiumStatus();
+      if (isMounted) {
+        setSubscriptionCheckLoading(false);
+      }
+    };
+
+    void refreshCurrentSubscriptionState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user, selectedDate, selectedTime, fetchLatestPremiumStatus]);
 
   useEffect(() => {
     return () => {
@@ -637,14 +660,19 @@ const Booking = () => {
       return;
     }
 
-    if (paymentMethodChoice === "assinante_premium" && !isPremiumSubscriber) {
-      toast({
-        title: "Assinatura premium inativa",
-        description: "Pagamento como assinante premium so esta disponivel para assinaturas ativas.",
-        variant: "destructive",
-      });
-      setPaymentMethodChoice("presencial");
-      return;
+    if (paymentMethodChoice === "assinante_premium") {
+      setSubscriptionCheckLoading(true);
+      const isPremiumActive = await fetchLatestPremiumStatus();
+      setSubscriptionCheckLoading(false);
+
+      if (!isPremiumActive) {
+        toast({
+          title: "Assinatura premium inativa",
+          description: "Pagamento como assinante premium so esta disponivel para assinaturas ativas.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     logBookingDebug("BOOK_CLICKED", {
@@ -1130,10 +1158,10 @@ const Booking = () => {
         </div>
 
         {selectedDate && selectedTime && (
-          <div className="animate-fade-in glass rounded-lg p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
+          <div className="animate-fade-in glass rounded-lg p-6">
+            <div className="flex items-start gap-3 w-full">
               <CheckCircle2 className="h-6 w-6 text-primary" />
-              <div>
+              <div className="w-full">
                 <p className="font-heading font-semibold">
                   {format(parseLocalDate(selectedDate), "EEEE, dd 'de' MMMM", { locale: ptBR })}
                 </p>
@@ -1182,7 +1210,7 @@ const Booking = () => {
                     <Button
                       type="button"
                       variant={paymentMethodChoice === "presencial" ? "default" : "outline"}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-full sm:w-auto"
                       onClick={() => setPaymentMethodChoice("presencial")}
                     >
                       Pagar presencialmente
@@ -1190,7 +1218,7 @@ const Booking = () => {
                     <Button
                       type="button"
                       variant={paymentMethodChoice === "online" ? "default" : "outline"}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-full sm:w-auto"
                       onClick={() => setPaymentMethodChoice("online")}
                     >
                       Pagar online (Mercado Pago)
@@ -1199,7 +1227,7 @@ const Booking = () => {
                       <Button
                         type="button"
                         variant={paymentMethodChoice === "assinante_premium" ? "default" : "outline"}
-                        className="h-8 text-xs"
+                        className="h-8 text-xs w-full sm:w-auto"
                         onClick={() => setPaymentMethodChoice("assinante_premium")}
                       >
                         Assinante premium
@@ -1214,16 +1242,17 @@ const Booking = () => {
                   {subscriptionCheckLoading && (
                     <p className="text-[11px] text-muted-foreground">Validando status da assinatura...</p>
                   )}
+
+                  <Button
+                    onClick={handleBook}
+                    disabled={submitting || !selectedServiceKey || !selectedBarberId || !selectedDate || !selectedTime || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
+                    className="font-heading w-full mt-2"
+                  >
+                    {submitting ? "Agendando..." : paymentFlow.state === "creating" ? "Gerando pagamento..." : "CONFIRMAR AGENDAMENTO"}
+                  </Button>
                 </div>
               </div>
             </div>
-            <Button
-              onClick={handleBook}
-              disabled={submitting || !selectedServiceKey || !selectedBarberId || !selectedDate || !selectedTime || paymentFlow.state === "creating" || paymentFlow.state === "pending"}
-              className="font-heading w-full sm:w-auto"
-            >
-              {submitting ? "Agendando..." : paymentFlow.state === "creating" ? "Gerando pagamento..." : "CONFIRMAR AGENDAMENTO"}
-            </Button>
           </div>
         )}
 
