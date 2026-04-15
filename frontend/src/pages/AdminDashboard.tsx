@@ -61,6 +61,7 @@ import {
   type FixedExpense,
   type VariableExpense,
 } from "@/lib/api";
+import { getSubscriptionState } from "@/lib/subscriptionState";
 import { normalizeWhatsAppPhone, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
 import { FixedExpenseEditModal } from "@/components/admin/FixedExpenseEditModal";
@@ -130,11 +131,6 @@ function isBirthdayOnAppointmentDate(birthDate?: string, appointmentDate?: strin
 function hasBirthdayDiscountInferred(appointment: Appointment) {
   const service = normalizeServiceToken(appointment.serviceType);
   return isBirthdayOnAppointmentDate(appointment.birthDate, appointment.appointmentDate) && service === "corte";
-}
-
-function isPremiumSubscriptionStatus(status?: string) {
-  const normalized = String(status || "").toLowerCase();
-  return normalized === "authorized" || normalized === "pending";
 }
 
 function findBaseServicePrice(serviceType: string | undefined, servicesPriceMap: Record<string, number>) {
@@ -866,7 +862,8 @@ const AdminDashboard = () => {
     const map = new Map<string, AdminSubscriber>();
     subscribers.forEach((subscriber) => {
       if (!subscriber.userId) return;
-      if (!isPremiumSubscriptionStatus(subscriber.status)) return;
+      const state = getSubscriptionState(subscriber);
+      if (!state.isActive) return;
       map.set(String(subscriber.userId), subscriber);
     });
     return map;
@@ -1345,7 +1342,14 @@ const AdminDashboard = () => {
                   const subscriberByAppointmentUserId = appointment.userId
                     ? premiumSubscribersByUserId.get(String(appointment.userId))
                     : undefined;
-                  const isPremiumSubscriber = Boolean(appointment.isPremiumSubscriber || subscriberByAppointmentUserId);
+                  const appointmentSubscriptionState = getSubscriptionState({
+                    status: appointment.subscriptionStatus,
+                    isActive: appointment.subscriptionIsActive,
+                    isCanceled: appointment.subscriptionIsCanceled,
+                    subscriptionState: appointment.subscriptionState,
+                  });
+                  const subscriberState = subscriberByAppointmentUserId ? getSubscriptionState(subscriberByAppointmentUserId) : null;
+                  const isPremiumSubscriber = Boolean(appointmentSubscriptionState.isActive || subscriberState?.isActive);
                   const subscriptionPlanName =
                     appointment.subscriptionPlanName || subscriberByAppointmentUserId?.planName || "Plano premium";
 
@@ -1664,18 +1668,37 @@ const AdminDashboard = () => {
                     </thead>
                     <tbody>
                       {subscribers.map((subscriber) => (
-                        <tr key={`${subscriber.userId}-${subscriber.subscriptionId || subscriber.preapprovalPlanId || "-"}`} className="border-b border-border/40 align-top">
-                          <td className="py-2 pr-3">{subscriber.fullName || "Sem nome"}</td>
-                          <td className="py-2 pr-3">{subscriber.planName || "Plano premium"}</td>
-                          <td className="py-2 pr-3">{subscriber.status}</td>
-                          <td className="py-2 pr-3">
-                            {typeof subscriber.transactionAmount === "number" ? formatMoney(subscriber.transactionAmount) : "-"}
-                          </td>
-                          <td className="py-2">
-                            {subscriber.phone || "-"}
-                            {subscriber.email ? ` • ${subscriber.email}` : ""}
-                          </td>
-                        </tr>
+                        (() => {
+                          const state = getSubscriptionState(subscriber);
+                          const badgeClass =
+                            state.color === "success"
+                              ? "bg-green-500/20 text-green-400 border-green-500/40"
+                              : state.color === "danger"
+                                ? "bg-destructive/20 text-destructive border-destructive/40"
+                                : "bg-muted text-muted-foreground border-border";
+
+                          return (
+                            <tr key={`${subscriber.userId}-${subscriber.subscriptionId || subscriber.preapprovalPlanId || "-"}`} className="border-b border-border/40 align-top">
+                              <td className="py-2 pr-3">{subscriber.fullName || "Sem nome"}</td>
+                              <td className="py-2 pr-3">{subscriber.planName || "Plano premium"}</td>
+                              <td className="py-2 pr-3">
+                                <div className="flex flex-col gap-1">
+                                  <span className={`text-[11px] px-2 py-0.5 rounded-full border w-fit ${badgeClass}`}>
+                                    {state.label}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">status: {subscriber.status || "-"}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 pr-3">
+                                {typeof subscriber.transactionAmount === "number" ? formatMoney(subscriber.transactionAmount) : "-"}
+                              </td>
+                              <td className="py-2">
+                                {subscriber.phone || "-"}
+                                {subscriber.email ? ` • ${subscriber.email}` : ""}
+                              </td>
+                            </tr>
+                          );
+                        })()
                       ))}
                     </tbody>
                   </table>

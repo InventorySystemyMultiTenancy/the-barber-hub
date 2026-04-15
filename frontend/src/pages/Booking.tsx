@@ -23,8 +23,8 @@ import {
   type AppointmentSlot,
   type PaymentStatus,
   type SlotsMeta,
-  type SubscriptionInfo,
 } from "@/lib/api";
+import { getSubscriptionState } from "@/lib/subscriptionState";
 import { BUSINESS_WHATSAPP_NUMBER, openWhatsAppMessage } from "@/lib/whatsapp";
 import { toast } from "@/hooks/use-toast";
 
@@ -88,10 +88,6 @@ function generateIdempotencyKey() {
   }
 
   return `pay_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function isPremiumSubscriptionStatus(status?: SubscriptionInfo["status"]) {
-  return status === "authorized" || status === "pending";
 }
 
 function logBookingDebug(step: string, payload: Record<string, unknown>) {
@@ -394,7 +390,7 @@ const Booking = () => {
         const subscription = await getMySubscription();
         if (!isMounted) return;
 
-        const premium = isPremiumSubscriptionStatus(subscription?.status);
+        const premium = getSubscriptionState(subscription).isActive;
         setIsPremiumSubscriber(premium);
         if (!premium) {
           setPaymentMethodChoice((current) => (current === "assinante_premium" ? "presencial" : current));
@@ -638,6 +634,16 @@ const Booking = () => {
         description: `Escolha uma data entre ${bookingWindowStart} e ${bookingWindowEnd}.`,
         variant: "destructive",
       });
+      return;
+    }
+
+    if (paymentMethodChoice === "assinante_premium" && !isPremiumSubscriber) {
+      toast({
+        title: "Assinatura premium inativa",
+        description: "Pagamento como assinante premium so esta disponivel para assinaturas ativas.",
+        variant: "destructive",
+      });
+      setPaymentMethodChoice("presencial");
       return;
     }
 

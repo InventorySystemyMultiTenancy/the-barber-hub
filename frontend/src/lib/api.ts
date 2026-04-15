@@ -88,6 +88,9 @@ export interface Appointment {
   birthDate?: string;
   paymentMethod?: string;
   subscriptionStatus?: SubscriptionStatus;
+  subscriptionIsActive?: boolean;
+  subscriptionIsCanceled?: boolean;
+  subscriptionState?: "ativa" | "cancelada" | "desconhecida" | string;
   subscriptionPlanName?: string;
   subscriptionPlanId?: string;
   isPremiumSubscriber?: boolean;
@@ -359,6 +362,9 @@ export interface SubscriptionInfo {
   frequency?: number;
   frequencyType?: "days" | "months";
   email?: string;
+  isActive?: boolean;
+  isCanceled?: boolean;
+  subscriptionState?: "ativa" | "cancelada" | "desconhecida" | string;
   attempts: SubscriptionAttempt[];
   providerEvents: SubscriptionProviderEvent[];
 }
@@ -372,6 +378,9 @@ export interface AdminSubscriber {
   preapprovalPlanId?: string;
   subscriptionId?: string;
   status: SubscriptionStatus;
+  isActive?: boolean;
+  isCanceled?: boolean;
+  subscriptionState?: "ativa" | "cancelada" | "desconhecida" | string;
   transactionAmount?: number;
   currencyId?: string;
 }
@@ -610,6 +619,31 @@ function normalizeAppointment(raw: any): Appointment {
     Boolean(premiumFlagRaw) ||
     (normalizedSubscriptionStatus ? isPremiumSubscriptionStatus(normalizedSubscriptionStatus) : false);
 
+  const subscriptionIsActiveRaw =
+    raw.subscription_is_active ??
+    raw.subscriptionIsActive ??
+    raw.is_active ??
+    raw.isActive ??
+    subscriptionSource?.is_active ??
+    subscriptionSource?.isActive ??
+    undefined;
+
+  const subscriptionIsCanceledRaw =
+    raw.subscription_is_canceled ??
+    raw.subscriptionIsCanceled ??
+    raw.is_canceled ??
+    raw.isCanceled ??
+    subscriptionSource?.is_canceled ??
+    subscriptionSource?.isCanceled ??
+    undefined;
+
+  const subscriptionStateRaw =
+    raw.subscription_state ??
+    raw.subscriptionState ??
+    subscriptionSource?.subscription_state ??
+    subscriptionSource?.subscriptionState ??
+    undefined;
+
   return {
     id: String(raw.id),
     appointmentDate: normalizeDateOnly(raw.appointment_date ?? raw.appointmentDate ?? ""),
@@ -625,6 +659,15 @@ function normalizeAppointment(raw: any): Appointment {
     birthDate: normalizeDateOnly(raw.birth_date ?? raw.birthDate ?? raw.user?.birth_date ?? raw.user?.birthDate ?? "") || undefined,
     paymentMethod: paymentMethod ? String(paymentMethod) : undefined,
     subscriptionStatus: normalizedSubscriptionStatus,
+    subscriptionIsActive:
+      subscriptionIsActiveRaw !== undefined && subscriptionIsActiveRaw !== null
+        ? Boolean(subscriptionIsActiveRaw)
+        : undefined,
+    subscriptionIsCanceled:
+      subscriptionIsCanceledRaw !== undefined && subscriptionIsCanceledRaw !== null
+        ? Boolean(subscriptionIsCanceledRaw)
+        : undefined,
+    subscriptionState: subscriptionStateRaw ? String(subscriptionStateRaw) : undefined,
     subscriptionPlanName: subscriptionPlanName ? String(subscriptionPlanName) : undefined,
     subscriptionPlanId: subscriptionPlanId ? String(subscriptionPlanId) : undefined,
     isPremiumSubscriber,
@@ -764,6 +807,19 @@ function normalizeSubscriptionInfo(raw: any): SubscriptionInfo {
     frequency: Number(source?.frequency ?? 0) || undefined,
     frequencyType: source?.frequency_type ?? source?.frequencyType ?? undefined,
     email: source?.email ?? source?.payer_email ?? source?.payerEmail ?? undefined,
+    isActive:
+      source?.is_active !== undefined && source?.is_active !== null
+        ? Boolean(source?.is_active)
+        : source?.isActive !== undefined && source?.isActive !== null
+          ? Boolean(source?.isActive)
+          : undefined,
+    isCanceled:
+      source?.is_canceled !== undefined && source?.is_canceled !== null
+        ? Boolean(source?.is_canceled)
+        : source?.isCanceled !== undefined && source?.isCanceled !== null
+          ? Boolean(source?.isCanceled)
+          : undefined,
+    subscriptionState: source?.subscription_state ?? source?.subscriptionState ?? undefined,
     attempts,
     providerEvents,
   };
@@ -848,6 +904,24 @@ function normalizeAdminSubscriber(raw: any): AdminSubscriber {
     preapprovalPlanId: preapprovalPlanId ? String(preapprovalPlanId) : undefined,
     subscriptionId: subscriptionId ? String(subscriptionId) : undefined,
     status,
+    isActive:
+      raw.is_active !== undefined && raw.is_active !== null
+        ? Boolean(raw.is_active)
+        : raw.isActive !== undefined && raw.isActive !== null
+          ? Boolean(raw.isActive)
+          : undefined,
+    isCanceled:
+      raw.is_canceled !== undefined && raw.is_canceled !== null
+        ? Boolean(raw.is_canceled)
+        : raw.isCanceled !== undefined && raw.isCanceled !== null
+          ? Boolean(raw.isCanceled)
+          : undefined,
+    subscriptionState:
+      raw.subscription_state ??
+      raw.subscriptionState ??
+      raw.subscription?.subscription_state ??
+      raw.subscription?.subscriptionState ??
+      undefined,
     transactionAmount,
     currencyId:
       raw.currency_id ??
@@ -1758,8 +1832,7 @@ export async function getAdminSubscribers(): Promise<AdminSubscriber[]> {
       const rows = extractCollection(data, ["subscribers", "subscriptions", "items", "rows"]);
       return rows
         .map(normalizeAdminSubscriber)
-        .filter((item) => item.userId.length > 0)
-        .filter((item) => isPremiumSubscriptionStatus(item.status));
+        .filter((item) => item.userId.length > 0);
     } catch (error) {
       if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
         lastError = error;
