@@ -738,7 +738,12 @@ const Booking = () => {
         time: selectedTime,
         serviceType: selectedServiceKey,
         barberId: selectedBarberId,
-        paymentMethod: paymentMethodChoice === "assinante_premium" ? "assinante_premium" : paymentMethodChoice,
+        paymentMethod:
+          paymentMethodChoice === "assinante_premium"
+            ? "assinante_premium"
+            : paymentMethodChoice === "online"
+              ? "pix"
+              : "manual",
       });
 
       const summary = getAppointmentSummary(createdAppointment);
